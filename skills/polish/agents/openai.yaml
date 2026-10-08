@@ -1,0 +1,4 @@
+interface:
+  display_name: "Polish"
+  short_description: "Refined American English with low, medium, or high effort"
+  default_prompt: "Use $polish --effort medium to polish this text into American English: "

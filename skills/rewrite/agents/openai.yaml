@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rewrite"
+  short_description: "Fast Chinese or rough English to natural American English"
+  default_prompt: "Use $rewrite to convert this text into natural American English: "
