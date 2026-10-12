@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-12
+
+### Added
+
+- `translate` skill: faithful translation into natural Simplified Chinese by default, from English, mixed Chinese-English, or other languages (Japanese, Korean, French, Italian, Russian, and more).
+- Automatic direction: purely Chinese input is translated into American English; `--to` forces any target, including `zh-TW` and `zh-HK`.
+- Translate options: `--to`, `--from`, `--gloss auto|off|full`, and `--bilingual`.
+- Chinese output conventions: conventional English terms kept, first-occurrence English glosses, original source titles and official names, full-width punctuation, Chinese-Latin spacing, no Kangxi radical look-alikes.
+- Reference parser support for translate options and direction; tests for language aliases, direction, multi-script length counting, and Kangxi radicals.
+- Behavior cases T1–T14.
+
+### Changed
+
+- Repository title is now "Rewrite, Polish & Translate". The repository name is unchanged.
+- The reference parser now counts words in any space-separated script (Latin, Cyrillic, Greek) as length units. `rewrite` and `polish` behavior is unchanged.
+
 ## [0.1.0] - 2026-10-08
 
 ### Added

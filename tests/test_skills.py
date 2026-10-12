@@ -7,14 +7,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from reference_parser import (  # noqa: E402
     DEFAULT_LIMIT,
+    SKILL_NAMES,
     count_units,
+    is_entirely_chinese,
     parse,
+    resolve_target,
     truncate_to_limit,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS_DIR = ROOT / "skills"
-SKILL_NAMES = ("rewrite", "polish")
+ENGLISH_OUTPUT_SKILLS = ("rewrite", "polish")
 
 
 def read_frontmatter(text: str) -> dict[str, str]:
@@ -51,9 +54,14 @@ class SkillStructureTests(unittest.TestCase):
                 description = read_frontmatter(skill_text(name)).get("description", "")
                 self.assertLessEqual(len(description), 1024)
                 self.assertIn("Chinese", description)
-                self.assertIn("American English", description)
-                self.assertIn("Not for code", description)
+                self.assertIn(f"/{name}", description)
+                self.assertRegex(description, r"Not for (translating source )?code")
                 self.assertNotIn("<", description)
+                if name in ENGLISH_OUTPUT_SKILLS:
+                    self.assertIn("American English", description)
+                else:
+                    self.assertIn("Simplified Chinese", description)
+                    self.assertIn("--to", description)
 
     def test_metadata_invokes_the_skill(self) -> None:
         for name in SKILL_NAMES:
@@ -65,7 +73,7 @@ class SkillStructureTests(unittest.TestCase):
 
 
 class SharedContractTests(unittest.TestCase):
-    """Both skills must document the same invocation contract."""
+    """All skills must document the same invocation contract."""
 
     SHARED_PHRASES = (
         "`--limit N`",
@@ -77,17 +85,28 @@ class SharedContractTests(unittest.TestCase):
         "`<<<…>>>`",
         "only the delimited content is payload",
         "each CJK character (Chinese, Japanese, Korean) = 1 unit",
-        "each Latin-script word or number = 1 unit",
         "Never cut mid-sentence.",
         "Options are recognized **only at the very start**",
-        "American spelling",
+        "An unrecognized leading option",
+        "A fenced block (three backticks) counts as a delimiter only when it wraps the **entire** payload.",
         "Please kindly…",
     )
+    ENGLISH_OUTPUT_PHRASES = (
+        "each Latin-script word or number = 1 unit",
+        "American spelling",
+    )
 
-    def test_shared_phrases_present_in_both(self) -> None:
+    def test_shared_phrases_present_in_all(self) -> None:
         for name in SKILL_NAMES:
             text = skill_text(name)
             for phrase in self.SHARED_PHRASES:
+                with self.subTest(skill=name, phrase=phrase):
+                    self.assertIn(phrase, text)
+
+    def test_english_output_phrases(self) -> None:
+        for name in ENGLISH_OUTPUT_SKILLS:
+            text = skill_text(name)
+            for phrase in self.ENGLISH_OUTPUT_PHRASES:
                 with self.subTest(skill=name, phrase=phrase):
                     self.assertIn(phrase, text)
 
@@ -106,8 +125,40 @@ class SharedContractTests(unittest.TestCase):
         self.assertIn("`--effort low\\|medium\\|high`", text)
         self.assertIn("(default)", text)
 
-    def test_rewrite_redirects_effort_to_polish(self) -> None:
-        self.assertIn("`--effort` belongs to `polish`", skill_text("rewrite"))
+    def test_non_polish_skills_redirect_effort(self) -> None:
+        for name in ("rewrite", "translate"):
+            with self.subTest(skill=name):
+                self.assertIn("`--effort` belongs to `polish`", skill_text(name))
+
+    def test_translate_documents_options(self) -> None:
+        text = skill_text("translate")
+        for phrase in (
+            "`--to LANG`",
+            "`--from LANG`",
+            "`--gloss auto\\|off\\|full`",
+            "`--bilingual`",
+            "| `auto` |",
+            "Simplified Chinese",
+            "American English",
+            "生物制剂（biologics）",
+            "U+2F00–U+2FDF",
+            "Never translate:",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_translate_counts_other_scripts(self) -> None:
+        self.assertIn(
+            "each word in a space-separated script (Latin, Cyrillic, Greek, and similar) or number = 1 unit",
+            skill_text("translate"),
+        )
+
+    def test_no_kangxi_radicals_in_any_file(self) -> None:
+        for path in ROOT.rglob("*"):
+            if path.is_file() and path.suffix in (".md", ".py", ".yaml", ".yml"):
+                text = path.read_text(encoding="utf-8")
+                with self.subTest(path=str(path.relative_to(ROOT))):
+                    self.assertFalse(any(0x2F00 <= ord(ch) <= 0x2FDF for ch in text))
 
     def test_notes_separator_is_markdown_safe(self) -> None:
         text = skill_text("polish")
@@ -196,11 +247,103 @@ class ReferenceParserTests(unittest.TestCase):
         self.assertEqual(invocation.payloads, ["明天请假"])
 
 
+class TranslateParserTests(unittest.TestCase):
+    def test_defaults(self) -> None:
+        invocation = parse("/translate Hello there.")
+        self.assertEqual(invocation.target, "auto")
+        self.assertEqual(invocation.source, "auto")
+        self.assertEqual(invocation.gloss, "auto")
+        self.assertFalse(invocation.bilingual)
+        self.assertEqual(invocation.limit, DEFAULT_LIMIT)
+        self.assertEqual(invocation.payloads, ["Hello there."])
+
+    def test_all_options(self) -> None:
+        invocation = parse(
+            '/translate --to=ja --from en --gloss FULL --bilingual --limit 800 --context "clinical" -- --dry-run mode'
+        )
+        self.assertEqual(invocation.target, "ja")
+        self.assertEqual(invocation.source, "en")
+        self.assertEqual(invocation.gloss, "full")
+        self.assertTrue(invocation.bilingual)
+        self.assertEqual(invocation.limit, 800)
+        self.assertEqual(invocation.context, "clinical")
+        self.assertEqual(invocation.payloads, ["--dry-run mode"])
+        self.assertEqual(invocation.warnings, [])
+
+    def test_language_names_and_codes(self) -> None:
+        cases = {"中文": "zh-CN", "zh": "zh-CN", "ZH-TW": "zh-TW", "English": "en", "日语": "ja", "ko": "ko", "nl": "nl"}
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(parse(f"/translate --to {value} text").target, expected)
+
+    def test_invalid_values_fall_back(self) -> None:
+        invocation = parse("/translate --to xyz --gloss maybe 文本")
+        self.assertEqual(invocation.target, "auto")
+        self.assertEqual(invocation.gloss, "auto")
+        self.assertEqual(len(invocation.warnings), 2)
+
+    def test_effort_on_translate_is_ignored(self) -> None:
+        invocation = parse("/translate --effort high Hello")
+        self.assertEqual(invocation.payloads, ["Hello"])
+        self.assertIn("--effort applies to polish only; ignored", invocation.warnings)
+
+    def test_translate_options_on_other_skills_are_ignored(self) -> None:
+        invocation = parse("/rewrite --to ja --bilingual 你好")
+        self.assertEqual(invocation.payloads, ["你好"])
+        self.assertEqual(len(invocation.warnings), 2)
+
+    def test_option_after_payload_is_text(self) -> None:
+        invocation = parse("/translate Set --to ja in the config.")
+        self.assertEqual(invocation.target, "auto")
+        self.assertEqual(invocation.payloads, ["Set --to ja in the config."])
+
+
+class TranslateDirectionTests(unittest.TestCase):
+    def target_for(self, raw: str) -> str:
+        invocation = parse(raw)
+        return resolve_target(invocation, invocation.payloads[0])
+
+    def test_non_chinese_goes_to_chinese(self) -> None:
+        for raw in (
+            "/translate Please review the attached draft.",
+            "/translate 来週の打ち合わせは木曜日に変更になりました。",
+            "/translate 이번 업데이트에서 로그인 오류가 수정되었습니다.",
+            "/translate Merci pour votre retour rapide.",
+            "/translate Спасибо за отзыв.",
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(self.target_for(raw), "zh-CN")
+
+    def test_mixed_with_ordinary_english_goes_to_chinese(self) -> None:
+        self.assertEqual(self.target_for("/translate 这个 PR 的 main concern 是 performance"), "zh-CN")
+        self.assertEqual(self.target_for("/translate 这个 feature 我们下周 release"), "zh-CN")
+
+    def test_pure_chinese_goes_to_english(self) -> None:
+        self.assertEqual(self.target_for("/translate 我们已经收到您的反馈。"), "en")
+        self.assertEqual(self.target_for("/translate 我们用 React 调用 API，抑制 IL-17 通路。"), "en")
+
+    def test_explicit_target_wins(self) -> None:
+        self.assertEqual(self.target_for("/translate --to zh 我们已经收到您的反馈。"), "zh-CN")
+        self.assertEqual(self.target_for("/translate --to fr Please review."), "fr")
+
+    def test_is_entirely_chinese_rejects_kana_and_hangul(self) -> None:
+        self.assertFalse(is_entirely_chinese("会議は木曜日です"))
+        self.assertFalse(is_entirely_chinese("회의 일정"))
+        self.assertFalse(is_entirely_chinese("Hello"))
+
+
 class LengthLimitTests(unittest.TestCase):
     def test_count_units_mixed(self) -> None:
         self.assertEqual(count_units("这个 feature 下周 release"), 6)
         self.assertEqual(count_units("I has send the file, ok?"), 6)
         self.assertEqual(count_units("，。！ ... "), 0)
+
+    def test_count_units_other_scripts(self) -> None:
+        self.assertEqual(count_units("Спасибо за отзыв."), 3)
+        self.assertEqual(count_units("C'est l'été."), 2)
+        self.assertEqual(count_units("来週の打ち合わせ"), 8)
+        self.assertEqual(count_units("로그인 오류"), 5)
+        self.assertEqual(count_units("IL-4 和 IL-13"), 3)
 
     def test_under_limit_is_untouched(self) -> None:
         text = "第一句。第二句。"
