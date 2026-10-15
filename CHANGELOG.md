@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-14
+
+### Added
+
+- `rewrite --explain`: after the rewritten text, a numbered list explains each grammar, spelling, or wording issue in Simplified Chinese, keeping source fragments, corrections, and grammar terms in English (主谓一致（subject-verb agreement）). Chinese input gets notes on the expressions that a literal translation would get wrong.
+- Reference parser and tests for the `--explain` flag; behavior cases R11–R14.
+
 ## [0.2.0] - 2026-10-12
 
 ### Added

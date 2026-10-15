@@ -247,6 +247,48 @@ class ReferenceParserTests(unittest.TestCase):
         self.assertEqual(invocation.payloads, ["明天请假"])
 
 
+class RewriteExplainTests(unittest.TestCase):
+    def test_explain_flag_defaults_off(self) -> None:
+        self.assertFalse(parse("/rewrite 你好").explain)
+
+    def test_explain_flag_with_other_options(self) -> None:
+        invocation = parse('/rewrite --explain --limit 300 --context "email" i has send it')
+        self.assertTrue(invocation.explain)
+        self.assertEqual(invocation.limit, 300)
+        self.assertEqual(invocation.context, "email")
+        self.assertEqual(invocation.payloads, ["i has send it"])
+        self.assertEqual(invocation.warnings, [])
+
+    def test_explain_after_payload_is_text(self) -> None:
+        invocation = parse("/rewrite please add --explain flag")
+        self.assertFalse(invocation.explain)
+        self.assertEqual(invocation.payloads, ["please add --explain flag"])
+
+    def test_explain_on_other_skills_is_ignored(self) -> None:
+        for raw in ("/polish --explain 文本", "/translate --explain text"):
+            with self.subTest(raw=raw):
+                invocation = parse(raw)
+                self.assertFalse(invocation.explain)
+                self.assertIn("--explain applies to rewrite only; ignored", invocation.warnings)
+
+    def test_skill_documents_explain_mode(self) -> None:
+        text = skill_text("rewrite")
+        for phrase in (
+            "`--explain`",
+            "## 6. Explain mode (`--explain`)",
+            "Write the explanation in Simplified Chinese.",
+            "主谓一致（subject-verb agreement）",
+            "原文没有语法问题，未做修改。",
+            "At most 10 items",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_explain_separator_is_markdown_safe(self) -> None:
+        body = skill_text("rewrite").split("---", 2)[2]
+        self.assertIsNone(re.search(r"[^\n]\n---\n", body))
+
+
 class TranslateParserTests(unittest.TestCase):
     def test_defaults(self) -> None:
         invocation = parse("/translate Hello there.")

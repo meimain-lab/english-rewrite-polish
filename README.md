@@ -4,7 +4,7 @@ Three companion skills for moving text between Chinese, English, and other langu
 
 | Skill | Purpose | Default output |
 | :--- | :--- | :--- |
-| `rewrite` | Fast, faithful conversion of Chinese, mixed Chinese-English, or rough English. Fixes the language, keeps the content and structure. | American English |
+| `rewrite` | Fast, faithful conversion of Chinese, mixed Chinese-English, or rough English. Fixes the language, keeps the content and structure. `--explain` adds a Chinese explanation of the grammar issues. | American English |
 | `polish` | Refined American English with three effort tiers: `low`, `medium` (default), `high`. | American English |
 | `translate` | Faithful translation from English, mixed text, or other languages (Japanese, Korean, French, Italian, Russian, …). Pure Chinese input goes to English. | Simplified Chinese |
 
@@ -13,7 +13,7 @@ All three skills work in Claude, ChatGPT, and Codex.
 ## Usage
 
 ```text
-/rewrite   [--limit N] [--context "..."] [--] <text>
+/rewrite   [--explain] [--limit N] [--context "..."] [--] <text>
 /polish    [--effort low|medium|high] [--limit N] [--context "..."] [--] <text>
 /translate [--to LANG] [--from LANG] [--gloss auto|off|full] [--bilingual] [--limit N] [--context "..."] [--] <text>
 ```
@@ -23,6 +23,7 @@ Use `$rewrite` / `$polish` / `$translate` in Codex and `@rewrite` / `@polish` / 
 ```text
 /rewrite 麻烦你今天下班前把报告发我一下，老板明早要看，辛苦了！
 /rewrite i has send the file yesterday but you dont reply me
+/rewrite --explain i has send the file yesterday but you dont reply me
 /polish --effort high --context "LinkedIn post" 我们团队历时两年终于完成了新的皮肤科 AI 工具……
 /translate Please review the attached draft and let me know if you have any questions before Friday.
 /translate --gloss full Dupilumab blocks IL-4 and IL-13 signaling in atopic dermatitis.
@@ -38,6 +39,7 @@ Use `$rewrite` / `$polish` / `$translate` in Codex and `@rewrite` / `@polish` / 
 | `--to LANG` | `translate` | `auto` | Target language: `zh`, `zh-TW`, `en`, `ja`, `ko`, `fr`, `it`, `ru`, … or a name such as `中文`, `English`, `日语`. |
 | `--from LANG` | `translate` | `auto` | Source language, for short or ambiguous text. |
 | `--gloss auto\|off\|full` | `translate` | `auto` | English term in parentheses after a translated technical term, on first occurrence. |
+| `--explain` | `rewrite` | off | After the rewrite, a numbered list explaining each grammar or wording issue in Chinese, with English fragments and terms such as 主谓一致（subject-verb agreement）. |
 | `--bilingual` | `translate` | off | Source and translation, paragraph by paragraph. |
 | `--limit N` / `--limit none` | all | `1000` | Maximum length units to process. |
 | `--context "..."` | all | none | Audience, purpose, domain, or terms to keep. Not translated or output. |
@@ -116,7 +118,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). License: MIT.
 
 这个仓库包含三个配套 skill：
 
-- **`rewrite`**：把中文、中英混杂的文字或写得很差的英文快速转成自然的美式英文，保留原文的内容、顺序和结构。
+- **`rewrite`**：把中文、中英混杂的文字或写得很差的英文快速转成自然的美式英文，保留原文的内容、顺序和结构。加上 `--explain` 后，会在译文下方用中文逐条讲解原文的语法和用词问题：原文片段和改法保留英文，语法术语首次出现时附英文，例如 时态（tense）、逗号粘连（comma splice）。原文是中文时，讲解的是哪些说法直译会变成中式英语。
 - **`polish`**：深度润色成美式英文，分三档。`low` 只改措辞；`medium`（默认）会重组句子、删去冗余；`high` 是完整的编辑处理，可以调整段落顺序，并附上主要改动说明。
 - **`translate`**：忠实翻译，默认译成简体中文。原文可以是英文、中英混杂，也可以是日语、韩语、法语、意大利语、俄语等。纯中文原文会自动译成英文；用 `--to` 可以指定任意目标语言。
 

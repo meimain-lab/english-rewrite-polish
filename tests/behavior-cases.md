@@ -72,6 +72,30 @@ Expected: standard US medical terms ("atopic dermatitis", "topical corticosteroi
 
 Reference: `The patient was diagnosed with atopic dermatitis three years ago and has recently responded poorly to topical corticosteroids.`
 
+### R11 — `--explain` on rough English
+
+Input: `/rewrite --explain i has send the file yesterday but you dont reply me, can you check it is received?`
+
+Expected: the same rewrite as R3, then a blank line, `---`, a blank line, and a numbered list in Chinese. Covers at least: lowercase i, has send → sent with 一般过去时（simple past）, missing apostrophe and reply to, the comma splice, and check whether. Source and corrected fragments stay in English; each grammar term carries its English name on first use.
+
+### R12 — `--explain` on Chinese input
+
+Input: `/rewrite --explain 麻烦你今天下班前把报告发我一下，老板明早要看，辛苦了！`
+
+Expected: the same rewrite as R1, then 2–5 items explaining Chinglish traps (麻烦你, 下班前, 辛苦了) and what the rewrite uses instead. No invented "grammar errors" in the Chinese.
+
+### R13 — `--explain` on good English
+
+Input: `/rewrite --explain Thanks for the update. I'll review it tomorrow.`
+
+Expected: the text unchanged, then the separator and the single line 原文没有语法问题，未做修改。
+
+### R14 — `--explain` on another skill, or after the payload
+
+Inputs: `/polish --explain 好的` and `/rewrite please add --explain flag`
+
+Expected: polish ignores the flag with a one-line notice that `--explain` belongs to `/rewrite`. In the second input, `--explain` is part of the text: output `Please add the --explain flag.` with no explanation block.
+
 ## polish
 
 ### P1 — Default effort is medium

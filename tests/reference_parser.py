@@ -30,6 +30,7 @@ VALUED_OPTIONS = {
 # Options that take no value.
 FLAG_OPTIONS = {
     "bilingual": ("translate",),
+    "explain": ("rewrite",),
 }
 
 LANGUAGE_ALIASES = {
@@ -56,7 +57,7 @@ VALUED_OPTION_PATTERN = re.compile(
     rf'^\s*--({OPTION_NAMES})(?:=|\s+)("[^"]*"|“[^”]*”|\S+)',
     re.IGNORECASE,
 )
-FLAG_OPTION_PATTERN = re.compile(r"^\s*--(bilingual)(?=\s|$)", re.IGNORECASE)
+FLAG_OPTION_PATTERN = re.compile(r"^\s*--(bilingual|explain)(?=\s|$)", re.IGNORECASE)
 UNKNOWN_OPTION_PATTERN = re.compile(r"^\s*--([A-Za-z][\w-]*)(?=\s|$)")
 TERMINATOR_PATTERN = re.compile(r"^\s*--(?=\s|$)")
 DELIMITED_BLOCK_PATTERN = re.compile(r'"""(.*?)"""|<<<(.*?)>>>', re.DOTALL)
@@ -82,6 +83,7 @@ class Invocation:
     source: str = "auto"
     gloss: str = DEFAULT_GLOSS
     bilingual: bool = False
+    explain: bool = False
     payloads: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -201,9 +203,10 @@ def parse(raw: str) -> Invocation:
             name = flag.group(1).lower()
             rest = rest[flag.end():]
             if invocation.skill in FLAG_OPTIONS[name]:
-                invocation.bilingual = True
+                setattr(invocation, name, True)
             else:
-                invocation.warnings.append(f"--{name} applies to translate only; ignored")
+                owner = "/".join(FLAG_OPTIONS[name])
+                invocation.warnings.append(f"--{name} applies to {owner} only; ignored")
             continue
         option = VALUED_OPTION_PATTERN.match(rest)
         if option:
