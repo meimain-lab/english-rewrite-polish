@@ -22,6 +22,11 @@ Recognized invocation tokens (case-insensitive): `/rewrite`, `$rewrite`, `@rewri
 | `--limit N` | Process at most N length units of the payload (see §3). `--limit none` removes the cap. | `1000` |
 | `--context "..."` | Audience, purpose, or terms to keep. Guides word choice; never translated, never output. | none |
 | `--explain` | After the rewritten text, explain the grammar and wording issues in Chinese, with English terms and fragments kept in English (see §6). Takes no value. | off |
+| `--speak` | After the output, read the English aloud with the companion `speak` skill (see §9). Takes no value. | off |
+| `--slow` / `--rate N` | Playback speed for `--speak`: `--slow` plays at 0.88×, `--rate N` takes 0.50–1.50 with at most two decimals. | `1` |
+| `--tag LEVEL` | Read with audio tags for emotion: `none`, `low`, `medium`, `high`, or `custom`. Any level except `none` also turns on `--speak`. A bare `--tag` means `medium`. See §9. | `none` |
+| `--mood "..."`, `--scene "..."`, `--situation "..."`, `--tags "..."` | Describe the speaker's mood, the surroundings, a whole situation in a paragraph, or tags that must be used. They mean `--tag custom`. See §9. | none |
+| `--help` | Show this option reference (see §10) and stop. Takes no value. | — |
 | `--` | Ends the option list. Everything after it is payload, even if it starts with `--`. | — |
 
 Option rules:
@@ -138,7 +143,7 @@ Rules:
 
 * Output **only** the rewritten English text. No preamble ("Here is…"), no explanation, no repetition of the source, no code fence around it.
 * With `--explain`, the explanation block from §6 follows the text.
-* The only other allowed additions, each as one short line at the very end in the user's conversation language: the truncation notice (§3), an invalid-option notice (§1), or — only when a wrong guess would materially change the meaning — a single ambiguity note.
+* The only other allowed additions, each as one short line at the very end in the user's conversation language: the truncation notice (§3), an invalid-option notice (§1), or — only when a wrong guess would materially change the meaning — a single ambiguity note. Speaking adds the lines described in §9.
 
 ## 8. Examples
 
@@ -240,3 +245,17 @@ Could you send me the report before you leave today? The boss wants to see it fi
 3. "明早" → "first thing tomorrow morning"：强调"一早就要"，比 tomorrow morning 更贴近原文的急迫感。
 4. "辛苦了" → "Thanks so much!"：英语没有对应的客套话，直译 You have worked hard 会显得奇怪，用道谢代替。
 ```
+
+## 9. Speaking the result (`--speak`, `--tag`)
+
+These options use the companion `speak` skill, which needs macOS, Python 3, and an ElevenLabs API key. The `speak` skill's SKILL.md and HELP.md describe every option and the five tag levels. They apply to the English output only: the `speak` skill is always called with `--lang en`, and a `--lang` option typed here is not recognized.
+
+* Speaking is requested by `--speak`, by `--tag` with any level except `none`, or by `--mood`, `--scene`, `--situation`, or `--tags`.
+* After the normal output (including any notes), follow the `speak` skill. Give it the English body only, never the `---` notes or any notice, together with the same `--slow`, `--rate`, `--tag`, `--mood`, `--scene`, `--situation`, and `--tags` options. When the text was truncated by `--limit`, speak the processed part.
+* The text shown on screen never contains audio tags, so it stays easy to copy. When tags were added, add one more block after speaking: a line `朗读版本：` followed by the tagged text in a code block.
+* Do not add a playback message unless playback fails. On failure, add the script's error message as the very last line.
+* If the `speak` skill is not installed, skip speaking and add one line at the very end, in the user's conversation language: `（未安装 speak skill，已跳过朗读。）`
+
+## 10. Help (`--help`)
+
+With `--help`, output the options table from §1 and two examples from §8, in the user's conversation language; for the speaking options, point to `@speak --help`. Process no text and call no tools.

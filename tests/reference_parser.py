@@ -17,6 +17,13 @@ EFFORT_LEVELS = ("low", "medium", "high")
 DEFAULT_GLOSS = "auto"
 GLOSS_MODES = ("auto", "off", "full")
 SKILL_NAMES = ("rewrite", "polish", "translate")
+ENGLISH_OUTPUT_SKILLS = ("rewrite", "polish")
+TAG_LEVELS = ("none", "low", "medium", "high", "custom")
+DEFAULT_TAG = "none"
+BARE_TAG_LEVEL = "medium"
+SLOW_RATE = 0.88
+MIN_RATE, MAX_RATE = 0.50, 1.50
+RATE_PATTERN = re.compile(r"^\d+(\.\d{1,2})?$")
 
 # Options that take a value, and which skills accept them.
 VALUED_OPTIONS = {
@@ -26,11 +33,22 @@ VALUED_OPTIONS = {
     "to": ("translate",),
     "from": ("translate",),
     "gloss": ("translate",),
+    "rate": ENGLISH_OUTPUT_SKILLS,
+    "mood": ENGLISH_OUTPUT_SKILLS,
+    "scene": ENGLISH_OUTPUT_SKILLS,
+    "situation": ENGLISH_OUTPUT_SKILLS,
+    "tags": ENGLISH_OUTPUT_SKILLS,
 }
+# `--tag` takes an optional level and is parsed separately.
+TAG_OPTION_SKILLS = ENGLISH_OUTPUT_SKILLS
+CUSTOM_TAG_OPTIONS = ("mood", "scene", "situation", "tags")
 # Options that take no value.
 FLAG_OPTIONS = {
     "bilingual": ("translate",),
     "explain": ("rewrite",),
+    "speak": ENGLISH_OUTPUT_SKILLS,
+    "slow": ENGLISH_OUTPUT_SKILLS,
+    "help": SKILL_NAMES,
 }
 
 LANGUAGE_ALIASES = {
@@ -57,7 +75,10 @@ VALUED_OPTION_PATTERN = re.compile(
     rf'^\s*--({OPTION_NAMES})(?:=|\s+)("[^"]*"|“[^”]*”|\S+)',
     re.IGNORECASE,
 )
-FLAG_OPTION_PATTERN = re.compile(r"^\s*--(bilingual|explain)(?=\s|$)", re.IGNORECASE)
+FLAG_OPTION_PATTERN = re.compile(r"^\s*--(bilingual|explain|speak|slow|help)(?=\s|$)", re.IGNORECASE)
+TAG_OPTION_PATTERN = re.compile(
+    r"^\s*--tag(?:(?:=|\s+)(none|low|medium|high|custom)(?=\s|$)|(?=\s|$))", re.IGNORECASE
+)
 UNKNOWN_OPTION_PATTERN = re.compile(r"^\s*--([A-Za-z][\w-]*)(?=\s|$)")
 TERMINATOR_PATTERN = re.compile(r"^\s*--(?=\s|$)")
 DELIMITED_BLOCK_PATTERN = re.compile(r'"""(.*?)"""|<<<(.*?)>>>', re.DOTALL)
@@ -84,8 +105,38 @@ class Invocation:
     gloss: str = DEFAULT_GLOSS
     bilingual: bool = False
     explain: bool = False
+    speak: bool = False
+    slow: bool = False
+    help: bool = False
+    rate: float | None = None
+    tag: str = DEFAULT_TAG
+    tag_explicit: bool = False
+    mood: str | None = None
+    scene: str | None = None
+    situation: str | None = None
+    tags: str | None = None
     payloads: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+
+def effective_rate(invocation: Invocation) -> float:
+    """Playback rate: --rate wins over --slow; otherwise 1."""
+    if invocation.rate is not None:
+        return invocation.rate
+    return SLOW_RATE if invocation.slow else 1.0
+
+
+def effective_tag(invocation: Invocation) -> str:
+    """Tag level; --mood/--scene/--situation/--tags alone mean custom."""
+    has_custom = any(getattr(invocation, name) for name in CUSTOM_TAG_OPTIONS)
+    if has_custom and not invocation.tag_explicit:
+        return "custom"
+    return invocation.tag
+
+
+def speaks(invocation: Invocation) -> bool:
+    """Whether the result is read aloud."""
+    return invocation.speak or effective_tag(invocation) != "none"
 
 
 def count_units(text: str) -> int:
@@ -182,8 +233,23 @@ def _apply_valued_option(invocation: Invocation, name: str, value: str) -> None:
             invocation.target = language
         else:
             invocation.source = language
+    elif name == "rate":
+        if RATE_PATTERN.match(value) and MIN_RATE <= float(value) <= MAX_RATE:
+            invocation.rate = float(value)
+        else:
+            invocation.warnings.append(f"invalid --rate {value!r}; using 1")
+    elif name in CUSTOM_TAG_OPTIONS:
+        setattr(invocation, name, value)
     else:
         invocation.context = value
+
+
+def _finish_tag_options(invocation: Invocation) -> None:
+    if invocation.tag_explicit and invocation.tag in ("low", "medium", "high"):
+        for name in CUSTOM_TAG_OPTIONS:
+            if getattr(invocation, name):
+                invocation.warnings.append(f"--{name} is used only with --tag custom; ignored")
+                setattr(invocation, name, None)
 
 
 def parse(raw: str) -> Invocation:
@@ -208,6 +274,16 @@ def parse(raw: str) -> Invocation:
                 owner = "/".join(FLAG_OPTIONS[name])
                 invocation.warnings.append(f"--{name} applies to {owner} only; ignored")
             continue
+        tag_option = TAG_OPTION_PATTERN.match(rest)
+        if tag_option:
+            rest = rest[tag_option.end():]
+            if invocation.skill in TAG_OPTION_SKILLS:
+                # A bare --tag means medium, but a custom option can still turn it into custom.
+                invocation.tag = (tag_option.group(1) or BARE_TAG_LEVEL).lower()
+                invocation.tag_explicit = tag_option.group(1) is not None
+            else:
+                invocation.warnings.append("--tag applies to rewrite/polish only; ignored")
+            continue
         option = VALUED_OPTION_PATTERN.match(rest)
         if option:
             rest = rest[option.end():]
@@ -219,6 +295,7 @@ def parse(raw: str) -> Invocation:
         invocation.warnings.append(f"unknown option --{unknown.group(1)}; ignored")
         rest = rest[unknown.end():]
 
+    _finish_tag_options(invocation)
     rest = rest.strip("\n ")
     whole_fence = WHOLE_FENCE_PATTERN.match(rest)
     if whole_fence:

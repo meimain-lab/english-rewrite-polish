@@ -7,6 +7,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from reference_parser import (  # noqa: E402
     DEFAULT_LIMIT,
+    effective_rate,
+    effective_tag,
+    speaks,
     SKILL_NAMES,
     count_units,
     is_entirely_chinese,
@@ -287,6 +290,96 @@ class RewriteExplainTests(unittest.TestCase):
     def test_explain_separator_is_markdown_safe(self) -> None:
         body = skill_text("rewrite").split("---", 2)[2]
         self.assertIsNone(re.search(r"[^\n]\n---\n", body))
+
+
+class SpeakOptionParserTests(unittest.TestCase):
+    def test_defaults_do_not_speak(self) -> None:
+        for skill in ("rewrite", "polish"):
+            invocation = parse(f"/{skill} 你好")
+            self.assertFalse(speaks(invocation))
+            self.assertEqual(effective_tag(invocation), "none")
+            self.assertEqual(effective_rate(invocation), 1.0)
+
+    def test_speak_flag_and_rates(self) -> None:
+        invocation = parse("/polish --speak --slow hello")
+        self.assertTrue(speaks(invocation))
+        self.assertEqual(effective_rate(invocation), 0.88)
+        self.assertEqual(effective_rate(parse("/rewrite --rate 0.75 hello")), 0.75)
+        self.assertEqual(effective_rate(parse("/rewrite --slow --rate 0.9 hello")), 0.9)
+
+    def test_invalid_rates_fall_back_with_warning(self) -> None:
+        for value in ("0.885", "0.4", "2", "fast"):
+            with self.subTest(value=value):
+                invocation = parse(f"/rewrite --rate {value} hello")
+                self.assertEqual(effective_rate(invocation), 1.0)
+                self.assertEqual(invocation.warnings, [f"invalid --rate {value!r}; using 1"])
+
+    def test_tag_levels(self) -> None:
+        for level in ("none", "low", "medium", "high", "custom"):
+            with self.subTest(level=level):
+                invocation = parse(f"/rewrite --tag {level} hello")
+                self.assertEqual(effective_tag(invocation), level)
+                self.assertEqual(speaks(invocation), level != "none")
+        self.assertEqual(effective_tag(parse("/polish --tag=high hello")), "high")
+
+    def test_bare_tag_means_medium_and_keeps_text(self) -> None:
+        invocation = parse("/rewrite --tag 我们下周发布")
+        self.assertEqual(effective_tag(invocation), "medium")
+        self.assertEqual(invocation.payloads, ["我们下周发布"])
+        self.assertTrue(speaks(invocation))
+
+    def test_custom_options_imply_custom(self) -> None:
+        for raw in (
+            "/rewrite --mood tired hello",
+            "/polish --scene \"rainy night office\" hello",
+            "/rewrite --situation \"深夜加班，很累\" hello",
+            "/rewrite --tags \"[tired] [sighing]\" hello",
+            "/rewrite --tag --mood tired hello",
+        ):
+            with self.subTest(raw=raw):
+                invocation = parse(raw)
+                self.assertEqual(effective_tag(invocation), "custom")
+                self.assertTrue(speaks(invocation))
+                self.assertEqual(invocation.payloads, ["hello"])
+
+    def test_custom_options_are_ignored_with_a_fixed_level(self) -> None:
+        invocation = parse("/rewrite --tag low --mood tired hello")
+        self.assertEqual(effective_tag(invocation), "low")
+        self.assertIsNone(invocation.mood)
+        self.assertEqual(invocation.warnings, ["--mood is used only with --tag custom; ignored"])
+
+    def test_situation_value_is_kept(self) -> None:
+        invocation = parse('/rewrite --tag custom --situation "深夜加班，很累，窗外下雨" It broke.')
+        self.assertEqual(invocation.situation, "深夜加班，很累，窗外下雨")
+        self.assertEqual(invocation.payloads, ["It broke."])
+
+    def test_options_after_payload_are_text(self) -> None:
+        invocation = parse("/rewrite please add --speak and --tag low")
+        self.assertFalse(speaks(invocation))
+        self.assertEqual(invocation.payloads, ["please add --speak and --tag low"])
+
+    def test_speak_options_on_translate_are_ignored(self) -> None:
+        invocation = parse("/translate --speak --tag low --rate 0.9 --slow hello")
+        self.assertFalse(speaks(invocation))
+        self.assertEqual(effective_rate(invocation), 1.0)
+        self.assertEqual(len(invocation.warnings), 4)
+
+    def test_help_flag_on_every_skill(self) -> None:
+        for skill in ("rewrite", "polish", "translate"):
+            with self.subTest(skill=skill):
+                invocation = parse(f"/{skill} --help")
+                self.assertTrue(invocation.help)
+                self.assertEqual(invocation.payloads, [])
+
+    def test_skills_document_speak_options_and_help(self) -> None:
+        for name in ("rewrite", "polish"):
+            text = skill_text(name)
+            for phrase in ("`--speak`", "`--slow` / `--rate N`", "`--tag LEVEL`", "`--situation", "`--help`",
+                           "## 9. Speaking the result", "## 10. Help (`--help`)", "朗读版本："):
+                with self.subTest(skill=name, phrase=phrase):
+                    self.assertIn(phrase, text)
+        self.assertIn("## 10. Help (`--help`)", skill_text("translate"))
+        self.assertNotIn("`--speak`", skill_text("translate"))
 
 
 class TranslateParserTests(unittest.TestCase):

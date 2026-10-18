@@ -1,14 +1,15 @@
 # Rewrite, Polish & Translate
 
-Three companion skills for moving text between Chinese, English, and other languages.
+Four companion skills for moving text between Chinese, English, and other languages, and for hearing the result.
 
 | Skill | Purpose | Default output |
 | :--- | :--- | :--- |
 | `rewrite` | Fast, faithful conversion of Chinese, mixed Chinese-English, or rough English. Fixes the language, keeps the content and structure. `--explain` adds a Chinese explanation of the grammar issues. | American English |
 | `polish` | Refined American English with three effort tiers: `low`, `medium` (default), `high`. | American English |
 | `translate` | Faithful translation from English, mixed text, or other languages (Japanese, Korean, French, Italian, Russian, …). Pure Chinese input goes to English. | Simplified Chinese |
+| `speak` | Optional. Reads text aloud with ElevenLabs for pronunciation and listening practice, with slow playback and optional emotion tags. | Audio |
 
-All three skills work in Claude, ChatGPT, and Codex.
+`rewrite`, `polish`, and `translate` work in Claude, ChatGPT, and Codex. `speak` needs a tool that can run local commands (OpenCode, Claude Code, Codex CLI) on macOS; see [Speaking (`speak`)](#speaking-speak).
 
 ## Usage
 
@@ -16,7 +17,10 @@ All three skills work in Claude, ChatGPT, and Codex.
 /rewrite   [--explain] [--limit N] [--context "..."] [--] <text>
 /polish    [--effort low|medium|high] [--limit N] [--context "..."] [--] <text>
 /translate [--to LANG] [--from LANG] [--gloss auto|off|full] [--bilingual] [--limit N] [--context "..."] [--] <text>
+/speak     [--slow | --rate N] [--replay] [--tag LEVEL] [--mood "..."] [--scene "..."] [--situation "..."] [--lang CODE] [--] [text]
 ```
+
+Every skill answers `--help` with its option reference.
 
 Use `$rewrite` / `$polish` / `$translate` in Codex and `@rewrite` / `@polish` / `@translate` in ChatGPT.
 
@@ -41,6 +45,11 @@ Use `$rewrite` / `$polish` / `$translate` in Codex and `@rewrite` / `@polish` / 
 | `--gloss auto\|off\|full` | `translate` | `auto` | English term in parentheses after a translated technical term, on first occurrence. |
 | `--explain` | `rewrite` | off | After the rewrite, a numbered list explaining each grammar or wording issue in Chinese, with English fragments and terms such as 主谓一致（subject-verb agreement）. |
 | `--bilingual` | `translate` | off | Source and translation, paragraph by paragraph. |
+| `--speak` | `rewrite`, `polish` | off | Read the English result aloud with `speak`. |
+| `--slow` / `--rate N` | `rewrite`, `polish`, `speak` | `1` | Playback speed: `--slow` is 0.88×, `--rate` takes 0.50–1.50 with at most two decimals. |
+| `--tag none\|low\|medium\|high\|custom` | `rewrite`, `polish`, `speak` | `none` | Read with audio tags for emotion. |
+| `--mood`, `--scene`, `--situation`, `--tags` | `rewrite`, `polish`, `speak` | none | Describe the situation for `--tag custom`. |
+| `--help` | all | — | Show the option reference. |
 | `--limit N` / `--limit none` | all | `1000` | Maximum length units to process. |
 | `--context "..."` | all | none | Audience, purpose, domain, or terms to keep. Not translated or output. |
 | `--` | all | — | Ends options; everything after is text. |
@@ -73,6 +82,26 @@ Length units: each CJK character = 1, each word in a space-separated script (Eng
 
 No tier adds facts, claims, or sign-offs that aren't in the source.
 
+### Speaking (`speak`)
+
+`speak` is optional. `rewrite` and `polish` work without it and only skip the `--speak` step.
+
+- **Needs:** macOS (`afplay`, Keychain), Python 3 (standard library only), and an ElevenLabs API key.
+- **Store the key** in the macOS Keychain; it is never written to a file. You are prompted for the key, so it stays out of your shell history:
+
+  ```bash
+  security add-generic-password -a "$USER" -s elevenlabs-api-key -w
+  ```
+
+- **First run** creates `~/.config/english-speak/config.json` from `skills/speak/config.example.json`. Set `voice_name` (any voice in your account; `python3 skills/speak/scripts/speak.py --list-voices` lists them) and `model_id`.
+- **Speed** changes local playback only, so a sentence is synthesized and cached once. The v4 models ignore the API's `speed` setting.
+- **Tags:** ElevenLabs' web Auto-tag button has no API. `--tag` makes the model insert tags from the whitelist in `skills/speak/audio-tags.md` (40 tags; any other bracketed tag is refused) without changing a word of the text. Levels: `none` (default), `low`, `medium`, `high`, and `custom`, which takes `--mood`, `--scene`, a paragraph-long `--situation`, or `--tags`.
+- **Languages:** called on its own, `speak` reads any language the model supports, as written. Called from `rewrite` or `polish`, it always reads English.
+- **Saved audio:** each new clip is copied to `~/Music/english-speak/` with an `index.tsv` of the spoken text. Set `"save_audio": false` to turn that off.
+- **Stop playback:** `pkill -x afplay`.
+
+See `skills/speak/HELP.md` for the full option reference.
+
 ## Installation
 
 **Codex:** use the skill installer with each skill directory:
@@ -81,9 +110,10 @@ No tier adds facts, claims, or sign-offs that aren't in the source.
 $skill-installer install the skill from https://github.com/meimain-lab/english-rewrite-polish/tree/main/skills/rewrite
 $skill-installer install the skill from https://github.com/meimain-lab/english-rewrite-polish/tree/main/skills/polish
 $skill-installer install the skill from https://github.com/meimain-lab/english-rewrite-polish/tree/main/skills/translate
+$skill-installer install the skill from https://github.com/meimain-lab/english-rewrite-polish/tree/main/skills/speak
 ```
 
-**Manual (Codex, Claude Code):** copy `skills/rewrite/`, `skills/polish/`, and `skills/translate/` into your personal skill directory (for example `~/.agents/skills/` or `~/.claude/skills/`). Each installed directory must contain `SKILL.md` directly beneath it.
+**Manual (Codex, Claude Code):** copy `skills/rewrite/`, `skills/polish/`, `skills/translate/`, and optionally `skills/speak/` into your personal skill directory (for example `~/.agents/skills/`, `~/.claude/skills/`, or `~/.config/opencode/skills/`). Each installed directory must contain `SKILL.md` directly beneath it.
 
 **Claude (claude.ai):** upload each skill folder as a custom skill. Each `SKILL.md` is self-contained.
 
@@ -97,12 +127,22 @@ skills/
 ├── polish/
 │   ├── SKILL.md
 │   └── agents/openai.yaml
-└── translate/
+├── translate/
+│   ├── SKILL.md
+│   └── agents/openai.yaml
+└── speak/
     ├── SKILL.md
-    └── agents/openai.yaml
+    ├── HELP.md              # Option reference shown by --help
+    ├── audio-tags.md        # Whitelist of the 40 audio tags
+    ├── config.example.json
+    ├── agents/openai.yaml
+    └── scripts/
+        ├── speak.py
+        └── play-audio.sh
 tests/
 ├── reference_parser.py      # Executable statement of the invocation contract
 ├── test_skills.py           # Structure, shared-contract, parser, and direction tests
+├── test_speak.py            # speak skill: rates, tag whitelist, cache, config, command line
 └── behavior-cases.md        # Manual review fixtures with expected outputs
 ```
 
@@ -116,10 +156,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). License: MIT.
 
 ## 中文说明
 
-这个仓库包含三个配套 skill：
+这个仓库包含四个配套 skill（其中 `speak` 是可选的）：
 
 - **`rewrite`**：把中文、中英混杂的文字或写得很差的英文快速转成自然的美式英文，保留原文的内容、顺序和结构。加上 `--explain` 后，会在译文下方用中文逐条讲解原文的语法和用词问题：原文片段和改法保留英文，语法术语首次出现时附英文，例如 时态（tense）、逗号粘连（comma splice）。原文是中文时，讲解的是哪些说法直译会变成中式英语。
 - **`polish`**：深度润色成美式英文，分三档。`low` 只改措辞；`medium`（默认）会重组句子、删去冗余；`high` 是完整的编辑处理，可以调整段落顺序，并附上主要改动说明。
+- **`speak`**（可选）：用 ElevenLabs 把文字读出来，练听力和跟读。需要 macOS 和 ElevenLabs API key（存在系统钥匙串里）。可以放慢播放（`--slow`、`--rate 0.88`，速度只影响本地播放，同一句只生成一次），也可以用 `--tag low|medium|high|custom` 自动加情绪标签。`custom` 档用 `--mood`、`--scene`，或用一段话的 `--situation` 描述说话时的情境。标签只能从 `skills/speak/audio-tags.md` 里的 40 个里选，不会编造新标签，也不会改动原文的任何词。单独使用时不限语言，从 `rewrite` / `polish` 调用时固定只读英文。每条新生成的音频会自动保存，并记入 `index.tsv`。各 skill 都支持 `--help`。
 - **`translate`**：忠实翻译，默认译成简体中文。原文可以是英文、中英混杂，也可以是日语、韩语、法语、意大利语、俄语等。纯中文原文会自动译成英文；用 `--to` 可以指定任意目标语言。
 
 **`translate` 的中文输出规则**

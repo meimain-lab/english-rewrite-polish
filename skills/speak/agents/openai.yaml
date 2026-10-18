@@ -1,0 +1,4 @@
+interface:
+  display_name: "Speak"
+  short_description: "Read English aloud with ElevenLabs, with optional audio tags and slow playback"
+  default_prompt: "Use $speak --slow to read this aloud: "

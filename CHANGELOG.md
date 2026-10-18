@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-18
+
+### Added
+
+- `speak` skill: reads text aloud with ElevenLabs text-to-speech for pronunciation and listening practice. macOS, Python 3, and an ElevenLabs API key are required; the key lives in the macOS Keychain. Called on its own it reads any language the model supports; called from `rewrite` or `polish` it always reads English.
+- Local playback speed: `--slow` (0.88×) and `--rate N` (0.50–1.50, at most two decimals), plus `--replay`. Speed is applied by `afplay`, so a sentence is synthesized and cached once.
+- `--tag none|low|medium|high|custom`: the equivalent of ElevenLabs' web Auto-tag, done by the model because the API has no such endpoint. Only the 40 tags in `skills/speak/audio-tags.md` may be used, and `speak.py` refuses any other bracketed tag. `custom` takes `--mood`, `--scene`, `--situation` (a paragraph), and `--tags`.
+- `--lang CODE` for `speak`; `--lang en` reads English only.
+- Every new clip is saved to a folder with an `index.tsv` of the spoken text; repeated sentences are served from a cache.
+- `rewrite` and `polish`: `--speak`, `--slow`, `--rate`, `--tag`, `--mood`, `--scene`, `--situation`, `--tags`. Without the `speak` skill they still work and say that speaking was skipped.
+- `--help` in `speak`, `rewrite`, `polish`, and `translate`.
+- Reference parser support and tests for the new options; tests for `speak.py` that run offline.
+
 ## [0.3.0] - 2026-10-14
 
 ### Added

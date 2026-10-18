@@ -233,3 +233,79 @@ Expected: the first two sentences (17 units) translated, then a one-line notice 
 Input: `/translate --effort high --gloss maybe --to xyz Good morning.`
 
 Expected: `早上好。`, followed by one-line notices that `--effort` belongs to `/polish`, `--gloss maybe` fell back to `auto`, and `--to xyz` fell back to `auto`.
+
+## speak
+
+Run these where `speak` is installed and an ElevenLabs key is set. Check the text sent to the script (the heredoc), the audio, and the one-line reply.
+
+### S1 — No tags by default
+
+Input: `/speak I sent the file yesterday but haven't heard back.`
+
+Expected: the text is sent unchanged, with no `[...]` tags. A new clip is saved with `none` in `index.tsv`. Reply is one short Chinese line.
+
+### S2 — Slow playback and replay
+
+Input: `/speak --rate 0.75 The quick brown fox jumps over the lazy dog.` then `/speak --replay --rate 0.9`
+
+Expected: the first call generates once and plays at 0.75×; the second call replays the same clip without calling the API.
+
+### S3 — Invalid rates
+
+Input: `/speak --rate 0.885 Hello.` and `/speak --rate 2 Hello.`
+
+Expected: both fail with a Chinese error about the rate; nothing is spoken.
+
+### S4 — `--tag low`
+
+Input: `/speak --tag low I'm not sure this is the right approach. Let me think about it. Maybe we should ask the team.`
+
+Expected: at most one tag for the three sentences, taken from `[softly]`, `[slowly]`, `[pause]`, `[chuckling]`, `[sighing]`, `[clears throat]`. After removing the tags the words are identical. The tagged text is shown in a code block.
+
+### S5 — `--tag high` keeps every word
+
+Input: `/speak --tag high I can't believe we actually won. Thank you all so much.`
+
+Expected: several tags (emotion, vocalization, delivery), no new tag outside `audio-tags.md`, capital letters or ellipses allowed for emphasis, and no word added, removed, or changed.
+
+### S6 — `--tag custom` with a paragraph
+
+Input: `/speak --tag custom --situation "深夜两点还在公司，很累，刚发现线上 bug，小声跟同事抱怨，窗外在下雨" I can't believe the build broke again. Not again.`
+
+Expected: tags that fit the described state and place, for example `[rain falling]`, `[tired]`, `[sighing]`, `[whispering]`. The situation text is not spoken and not copied into the text. The words are unchanged.
+
+### S7 — `--tags` outside the whitelist
+
+Input: `/speak --tag custom --tags "[happy]" Hello there.`
+
+Expected: nothing is spoken; the reply shows `不支持的标签：[happy]`.
+
+### S8 — Another language on its own
+
+Input: `/speak 今天天气不错，我们去公园走走吧。`
+
+Expected: the Chinese text is read as written, not translated, with no `--lang` forced.
+
+### S9 — Forced English from `rewrite`
+
+Input: `/rewrite --speak 麻烦你今天下班前把报告发我一下，老板明早要看，辛苦了！`
+
+Expected: the English rewrite is shown and read aloud with `--lang en`; the Chinese source is never read.
+
+### S10 — `rewrite --tag` shows the tagged version
+
+Input: `/rewrite --tag medium i has send the file yesterday but you dont reply me`
+
+Expected: the screen text has no tags. After speaking, a `朗读版本：` block shows the tagged text.
+
+### S11 — `speak` not installed
+
+Input: `/polish --speak 我们下周发布这个功能` without the `speak` skill.
+
+Expected: the polished English as usual, then one line: `（未安装 speak skill，已跳过朗读。）`
+
+### S12 — `--help`
+
+Input: `/speak --help`
+
+Expected: the contents of `HELP.md` exactly, nothing spoken, no API call. `/rewrite --help` shows the options table and two examples and processes no text.

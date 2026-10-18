@@ -25,6 +25,7 @@ Recognized invocation tokens (case-insensitive): `/translate`, `$translate`, `@t
 | `--bilingual` | Output source and translation paragraph by paragraph, for reading and review. Takes no value. | off |
 | `--limit N` | Process at most N length units of the payload (see §3). `--limit none` removes the cap. | `1000` |
 | `--context "..."` | Audience, purpose, domain, or terms to keep. Guides word choice; never translated, never output. | none |
+| `--help` | Show this option reference (see §10) and stop. Takes no value. | — |
 | `--` | Ends the option list. Everything after it is payload, even if it starts with `--`. | — |
 
 Option rules:
@@ -273,3 +274,7 @@ Background: Atopic dermatitis is a chronic inflammatory skin disease.
 Objective: To evaluate the long-term safety of dupilumab.
 目的：评估度普利尤单抗的长期安全性。
 ```
+
+## 10. Help (`--help`)
+
+With `--help`, output the options table from §1 and two examples from §9, in the user's conversation language. Process no text and call no tools.

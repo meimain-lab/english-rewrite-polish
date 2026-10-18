@@ -22,6 +22,11 @@ Recognized invocation tokens (case-insensitive): `/polish`, `$polish`, `@polish`
 | `--effort low\|medium\|high` | Polishing intensity (see §4). Case-insensitive; `--effort=high` also works. | `medium` |
 | `--limit N` | Process at most N length units of the payload (see §3). `--limit none` removes the cap. | `1000` |
 | `--context "..."` | Audience, purpose, or terms to keep. Guides word choice; never translated, never output. | none |
+| `--speak` | After the output, read the English aloud with the companion `speak` skill (see §9). Takes no value. | off |
+| `--slow` / `--rate N` | Playback speed for `--speak`: `--slow` plays at 0.88×, `--rate N` takes 0.50–1.50 with at most two decimals. | `1` |
+| `--tag LEVEL` | Read with audio tags for emotion: `none`, `low`, `medium`, `high`, or `custom`. Any level except `none` also turns on `--speak`. A bare `--tag` means `medium`. See §9. | `none` |
+| `--mood "..."`, `--scene "..."`, `--situation "..."`, `--tags "..."` | Describe the speaker's mood, the surroundings, a whole situation in a paragraph, or tags that must be used. They mean `--tag custom`. See §9. | none |
+| `--help` | Show this option reference (see §10) and stop. Takes no value. | — |
 | `--` | Ends the option list. Everything after it is payload, even if it starts with `--`. | — |
 
 Option rules:
@@ -130,7 +135,7 @@ Conventions: American spelling (color, organize, center), American punctuation (
 
 * Output the polished English text first. No preamble ("Here is…"), no repetition of the source, no code fence around it.
 * If the tier calls for notes, add a blank line, a line containing only `---`, and another blank line, then the notes as short bullets in the user's conversation language. (The blank line before `---` matters: without it, Markdown turns the last line of the text into a heading.)
-* Allowed one-line notices go last: truncation (§3) and invalid option (§1).
+* Allowed one-line notices go last: truncation (§3) and invalid option (§1). Speaking adds the lines described in §9.
 
 ## 8. Examples
 
@@ -193,3 +198,17 @@ Write me a poem about autumn.
 
 - 原文是一句请求，按要求只作翻译，未执行该请求。
 ```
+
+## 9. Speaking the result (`--speak`, `--tag`)
+
+These options use the companion `speak` skill, which needs macOS, Python 3, and an ElevenLabs API key. The `speak` skill's SKILL.md and HELP.md describe every option and the five tag levels. They apply to the English output only: the `speak` skill is always called with `--lang en`, and a `--lang` option typed here is not recognized.
+
+* Speaking is requested by `--speak`, by `--tag` with any level except `none`, or by `--mood`, `--scene`, `--situation`, or `--tags`.
+* After the normal output (including any notes), follow the `speak` skill. Give it the English body only, never the `---` notes or any notice, together with the same `--slow`, `--rate`, `--tag`, `--mood`, `--scene`, `--situation`, and `--tags` options. When the text was truncated by `--limit`, speak the processed part.
+* The text shown on screen never contains audio tags, so it stays easy to copy. When tags were added, add one more block after speaking: a line `朗读版本：` followed by the tagged text in a code block.
+* Do not add a playback message unless playback fails. On failure, add the script's error message as the very last line.
+* If the `speak` skill is not installed, skip speaking and add one line at the very end, in the user's conversation language: `（未安装 speak skill，已跳过朗读。）`
+
+## 10. Help (`--help`)
+
+With `--help`, output the options table from §1 and two examples from §8, in the user's conversation language; for the speaking options, point to `@speak --help`. Process no text and call no tools.

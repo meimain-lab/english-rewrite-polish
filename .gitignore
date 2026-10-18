@@ -4,3 +4,6 @@ __pycache__/
 .pytest_cache/
 .idea/
 .vscode/
+config.json
+*.mp3
+__pycache__/
