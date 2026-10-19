@@ -18,7 +18,7 @@ DEFAULT_GLOSS = "auto"
 GLOSS_MODES = ("auto", "off", "full")
 SKILL_NAMES = ("rewrite", "polish", "translate")
 ENGLISH_OUTPUT_SKILLS = ("rewrite", "polish")
-TAG_LEVELS = ("none", "low", "medium", "high", "custom")
+TAG_LEVELS = ("none", "low", "medium", "high", "custom", "auto")
 DEFAULT_TAG = "none"
 BARE_TAG_LEVEL = "medium"
 SLOW_RATE = 0.88
@@ -38,6 +38,8 @@ VALUED_OPTIONS = {
     "scene": ENGLISH_OUTPUT_SKILLS,
     "situation": ENGLISH_OUTPUT_SKILLS,
     "tags": ENGLISH_OUTPUT_SKILLS,
+    "voice": ENGLISH_OUTPUT_SKILLS,
+    "model": ENGLISH_OUTPUT_SKILLS,
 }
 # `--tag` takes an optional level and is parsed separately.
 TAG_OPTION_SKILLS = ENGLISH_OUTPUT_SKILLS
@@ -77,7 +79,7 @@ VALUED_OPTION_PATTERN = re.compile(
 )
 FLAG_OPTION_PATTERN = re.compile(r"^\s*--(bilingual|explain|speak|slow|help)(?=\s|$)", re.IGNORECASE)
 TAG_OPTION_PATTERN = re.compile(
-    r"^\s*--tag(?:(?:=|\s+)(none|low|medium|high|custom)(?=\s|$)|(?=\s|$))", re.IGNORECASE
+    r"^\s*--tag(?:(?:=|\s+)(none|low|medium|high|custom|auto)(?=\s|$)|(?=\s|$))", re.IGNORECASE
 )
 UNKNOWN_OPTION_PATTERN = re.compile(r"^\s*--([A-Za-z][\w-]*)(?=\s|$)")
 TERMINATOR_PATTERN = re.compile(r"^\s*--(?=\s|$)")
@@ -115,6 +117,8 @@ class Invocation:
     scene: str | None = None
     situation: str | None = None
     tags: str | None = None
+    voice: str | None = None
+    model: str | None = None
     payloads: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -127,10 +131,12 @@ def effective_rate(invocation: Invocation) -> float:
 
 
 def effective_tag(invocation: Invocation) -> str:
-    """Tag level; --mood/--scene/--situation/--tags alone mean custom."""
+    """Tag level; --mood/--scene/--situation/--tags alone mean custom, custom without them means auto."""
     has_custom = any(getattr(invocation, name) for name in CUSTOM_TAG_OPTIONS)
     if has_custom and not invocation.tag_explicit:
         return "custom"
+    if invocation.tag == "custom" and not has_custom:
+        return "auto"
     return invocation.tag
 
 
@@ -238,14 +244,14 @@ def _apply_valued_option(invocation: Invocation, name: str, value: str) -> None:
             invocation.rate = float(value)
         else:
             invocation.warnings.append(f"invalid --rate {value!r}; using 1")
-    elif name in CUSTOM_TAG_OPTIONS:
+    elif name in CUSTOM_TAG_OPTIONS or name in ("voice", "model"):
         setattr(invocation, name, value)
     else:
         invocation.context = value
 
 
 def _finish_tag_options(invocation: Invocation) -> None:
-    if invocation.tag_explicit and invocation.tag in ("low", "medium", "high"):
+    if invocation.tag_explicit and invocation.tag in ("low", "medium", "high", "auto"):
         for name in CUSTOM_TAG_OPTIONS:
             if getattr(invocation, name):
                 invocation.warnings.append(f"--{name} is used only with --tag custom; ignored")

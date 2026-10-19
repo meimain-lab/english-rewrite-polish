@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-19
+
+### Added
+
+- `--voice NAME` takes a voice name, the short name before " - " (`alice`), or a voice_id, case-insensitively. `--model NAME` takes a model_id or the aliases `v4`, `v4-turbo`, `v3`, `multilingual`, and `flash`. Both work in `speak`, `rewrite`, and `polish`. Voice and model lists are cached for 24 hours.
+- `--tag auto`: the model analyzes the line, infers a vivid but believable situation, and prints the situation (in American English), a short analysis, and the tagged text before speaking. `--tag custom` without `--mood`, `--scene`, `--situation`, or `--tags` now means `auto`.
+- `--stop` stops the clip `speak` is playing.
+- `index.tsv` gains voice, model, and situation columns.
+- Markdown is turned into plain spoken text before speaking: link text only, no URLs or code blocks.
+
+### Changed
+
+- `speak.py` refuses tags outside a level's categories (`low`, `medium`, `high`), and refuses tags with models that do not support them (anything other than v3, v4, and v4 Turbo). `language_code` is not sent to `eleven_multilingual_v2`.
+- Playback is started by `speak.py` itself; `scripts/play-audio.sh` is removed.
+
+### Removed
+
+- The `default_tag` setting, which was never applied.
+
+### Fixed
+
+- Changing `voice_name` in the config kept using the old voice.
+- Markdown links such as `[docs](https://…)` were rejected as unsupported tags.
+- A non-audio API response could be cached and replayed as a broken clip.
+- Stopping playback killed every `afplay` process, not only the one `speak` started.
+- Two clips saved in the same second with the same opening words overwrote each other.
+- A 429 or 5xx response failed at once; it is now retried once.
+
 ## [0.4.0] - 2026-10-18
 
 ### Added

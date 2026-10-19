@@ -315,11 +315,32 @@ class SpeakOptionParserTests(unittest.TestCase):
                 self.assertEqual(invocation.warnings, [f"invalid --rate {value!r}; using 1"])
 
     def test_tag_levels(self) -> None:
-        for level in ("none", "low", "medium", "high", "custom"):
+        for level in ("none", "low", "medium", "high", "auto"):
             with self.subTest(level=level):
                 invocation = parse(f"/rewrite --tag {level} hello")
                 self.assertEqual(effective_tag(invocation), level)
                 self.assertEqual(speaks(invocation), level != "none")
+
+    def test_custom_without_hints_means_auto(self) -> None:
+        invocation = parse("/rewrite --tag custom hello")
+        self.assertEqual(effective_tag(invocation), "auto")
+        self.assertTrue(speaks(invocation))
+        self.assertEqual(effective_tag(parse("/rewrite --tag custom --mood tired hello")), "custom")
+
+    def test_auto_ignores_custom_options(self) -> None:
+        invocation = parse("/polish --tag auto --scene office hello")
+        self.assertEqual(effective_tag(invocation), "auto")
+        self.assertIsNone(invocation.scene)
+        self.assertEqual(invocation.warnings, ["--scene is used only with --tag custom; ignored"])
+
+    def test_voice_and_model(self) -> None:
+        invocation = parse('/rewrite --speak --voice "Alice" --model v4 hello')
+        self.assertEqual((invocation.voice, invocation.model), ("Alice", "v4"))
+        self.assertEqual(invocation.payloads, ["hello"])
+        self.assertEqual(invocation.warnings, [])
+        ignored = parse("/translate --voice alice hello")
+        self.assertIsNone(ignored.voice)
+        self.assertEqual(ignored.warnings, ["--voice applies to rewrite/polish only; ignored"])
         self.assertEqual(effective_tag(parse("/polish --tag=high hello")), "high")
 
     def test_bare_tag_means_medium_and_keeps_text(self) -> None:
@@ -375,6 +396,7 @@ class SpeakOptionParserTests(unittest.TestCase):
         for name in ("rewrite", "polish"):
             text = skill_text(name)
             for phrase in ("`--speak`", "`--slow` / `--rate N`", "`--tag LEVEL`", "`--situation", "`--help`",
+                           "`--voice NAME` / `--model NAME`", "`auto`", "推断的情境：",
                            "## 9. Speaking the result", "## 10. Help (`--help`)", "朗读版本："):
                 with self.subTest(skill=name, phrase=phrase):
                     self.assertIn(phrase, text)

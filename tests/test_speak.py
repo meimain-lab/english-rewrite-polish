@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -19,7 +20,7 @@ _spec.loader.exec_module(speak)
 ALLOWED = speak.load_allowed_tags()
 TAG_TOKEN = re.compile(r"\[([a-z][a-z ]*)\]")
 # Bracketed words in the docs that are usage placeholders, not audio tags.
-PLACEHOLDERS = {"options", "text", "xxx"}
+PLACEHOLDERS = {"options", "text", "xxx", "sic"}
 
 
 def option_names(markdown: str) -> set[str]:
@@ -91,6 +92,121 @@ class TagWhitelistTests(unittest.TestCase):
                 self.assertIn(f"`[{tag}]`", help_text)
 
 
+class TagLevelTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.categories = speak.load_tag_categories()
+
+    def test_categories(self) -> None:
+        self.assertEqual(
+            {name: len(tags) for name, tags in self.categories.items()},
+            {"Emotion": 7, "Vocalizations": 12, "Delivery": 6, "Character": 3, "Sound effects": 12},
+        )
+
+    def test_level_tags(self) -> None:
+        low = speak.level_tags("low", self.categories)
+        medium = speak.level_tags("medium", self.categories)
+        high = speak.level_tags("high", self.categories)
+        self.assertEqual(low, {"softly", "slowly", "pause", "chuckling", "sighing", "clears throat"})
+        self.assertEqual(medium, low | self.categories["Emotion"])
+        self.assertTrue(medium <= high)
+        self.assertNotIn("rain falling", high)
+        self.assertNotIn("witch voice", high)
+        for level in ("none", "custom", "auto"):
+            self.assertIsNone(speak.level_tags(level, self.categories))
+
+    def test_off_level_tags_are_found(self) -> None:
+        low = speak.level_tags("low", self.categories)
+        self.assertEqual(speak.find_unsupported_tags("[softly] Hi. [excited] [rain falling] Go!", low),
+                         ["[excited]", "[rain falling]"])
+
+
+class TagDetectionTests(unittest.TestCase):
+    def test_markdown_links_and_non_words_are_not_tags(self) -> None:
+        text = "See [the docs](https://x.io), note [1], and [tired] [Sighing] [x2]."
+        self.assertEqual(speak.find_tags(text), ["[tired]", "[Sighing]"])
+
+    def test_long_bracket_text_is_not_a_tag(self) -> None:
+        self.assertEqual(speak.find_tags("[this is far too long to be a tag]"), [])
+
+    def test_tag_support_by_model(self) -> None:
+        for model in ("eleven_v4", "eleven_v4_turbo", "eleven_v3"):
+            with self.subTest(model=model):
+                self.assertIsNone(speak.tag_support_error(model, "high", "[excited] Hi."))
+        self.assertIsNone(speak.tag_support_error("eleven_multilingual_v2", "none", "Hi."))
+        self.assertIsNotNone(speak.tag_support_error("eleven_multilingual_v2", "low", "Hi."))
+        self.assertIsNotNone(speak.tag_support_error("eleven_flash_v2_5", "none", "[excited] Hi."))
+
+
+class VoiceAndModelTests(unittest.TestCase):
+    VOICES = [
+        {"voice_id": "a" * 20, "name": "Alice - Clear, Engaging Educator"},
+        {"voice_id": "b" * 20, "name": "labinini2"},
+        {"voice_id": "c" * 20, "name": "Chris - Charming"},
+        {"voice_id": "d" * 20, "name": "Chris - Deep"},
+    ]
+
+    def names(self, query: str) -> list[str]:
+        return [v["name"] for v in speak.match_voices(self.VOICES, query)]
+
+    def test_full_name_and_short_name(self) -> None:
+        self.assertEqual(self.names("LABININI2"), ["labinini2"])
+        self.assertEqual(self.names("alice"), ["Alice - Clear, Engaging Educator"])
+        self.assertEqual(self.names("Alice - Clear, Engaging Educator"), ["Alice - Clear, Engaging Educator"])
+
+    def test_ambiguous_and_missing(self) -> None:
+        self.assertEqual(self.names("chris"), ["Chris - Charming", "Chris - Deep"])
+        self.assertEqual(self.names("bob"), [])
+
+    def test_exact_name_wins_over_short_name(self) -> None:
+        voices = self.VOICES + [{"voice_id": "e" * 20, "name": "Alice"}]
+        self.assertEqual([v["name"] for v in speak.match_voices(voices, "alice")], ["Alice"])
+
+    def test_model_aliases(self) -> None:
+        self.assertEqual(speak.normalize_model("v4"), "eleven_v4")
+        self.assertEqual(speak.normalize_model("V4-Turbo"), "eleven_v4_turbo")
+        self.assertEqual(speak.normalize_model("v3"), "eleven_v3")
+        self.assertEqual(speak.normalize_model("multilingual"), "eleven_multilingual_v2")
+        self.assertEqual(speak.normalize_model("flash"), "eleven_flash_v2_5")
+        self.assertEqual(speak.normalize_model("eleven_turbo_v2_5"), "eleven_turbo_v2_5")
+
+
+class AudioAndFilesTests(unittest.TestCase):
+    def test_looks_like_mp3(self) -> None:
+        self.assertTrue(speak.looks_like_mp3(b"ID3" + b"\0" * 200))
+        self.assertTrue(speak.looks_like_mp3(b"\xff\xfb" + b"\0" * 200))
+        self.assertFalse(speak.looks_like_mp3(b'{"detail": "error"}' + b" " * 200))
+        self.assertFalse(speak.looks_like_mp3(b""))
+        self.assertFalse(speak.looks_like_mp3(b"ID3"))
+
+    def test_unique_path_and_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            clip = folder / "clip.mp3"
+            clip.write_bytes(b"ID3" + b"\0" * 200)
+            save_dir = folder / "saved"
+            first = speak.archive(clip, "[tired] Hello there.", "auto", save_dir, "labinini2",
+                                  "eleven_v4_turbo", "Late\tnight at\nthe office.")
+            second = speak.archive(clip, "[tired] Hello there.", "auto", save_dir)
+            self.assertNotEqual(first, second)
+            self.assertTrue(first.is_file() and second.is_file())
+            rows = [line.split("\t") for line in (save_dir / "index.tsv").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(len(rows[0]), 7)
+            self.assertEqual(rows[0][2:], ["auto", "[tired] Hello there.", "labinini2", "eleven_v4_turbo",
+                                           "Late night at the office."])
+            self.assertEqual(speak.unique_path(save_dir / "new.mp3"), save_dir / "new.mp3")
+
+    def test_stop_playback_only_stops_afplay(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_file = Path(tmp) / "player.pid"
+            self.assertFalse(speak.stop_playback(pid_file))
+            pid_file.write_text(str(os.getpid()))
+            self.assertFalse(speak.stop_playback(pid_file))
+            self.assertFalse(pid_file.exists())
+            pid_file.write_text("not a pid")
+            self.assertFalse(speak.stop_playback(pid_file))
+
+
 class CacheTests(unittest.TestCase):
     def test_digest_is_stable_and_sensitive(self) -> None:
         base = speak.cache_digest("Hello.", "voice", "model", {"stability": 0.5})
@@ -126,7 +242,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_defaults(self) -> None:
         self.assertEqual(self.config["model_id"], "eleven_v4_turbo")
-        self.assertEqual(self.config["default_tag"], "none")
+        self.assertNotIn("default_tag", self.config)
         self.assertTrue(self.config["save_audio"])
         self.assertTrue(speak.MIN_RATE <= self.config["slow_rate"] <= speak.MAX_RATE)
         self.assertEqual(self.config["slow_rate"], speak.DEFAULT_SLOW_RATE)
@@ -136,15 +252,13 @@ class SkillFilesTests(unittest.TestCase):
     def test_required_files(self) -> None:
         for relative in (
             "SKILL.md", "HELP.md", "audio-tags.md", "config.example.json",
-            "agents/openai.yaml", "scripts/speak.py", "scripts/play-audio.sh",
+            "agents/openai.yaml", "scripts/speak.py",
         ):
             with self.subTest(file=relative):
                 self.assertTrue((SPEAK_DIR / relative).is_file())
 
     def test_scripts_are_executable(self) -> None:
-        for relative in ("scripts/speak.py", "scripts/play-audio.sh"):
-            with self.subTest(file=relative):
-                self.assertTrue(os.access(SPEAK_DIR / relative, os.X_OK))
+        self.assertTrue(os.access(SCRIPT, os.X_OK))
 
     def test_frontmatter(self) -> None:
         text = (SPEAK_DIR / "SKILL.md").read_text(encoding="utf-8")
@@ -175,6 +289,17 @@ class SkillFilesTests(unittest.TestCase):
         for level in speak.TAG_LEVELS:
             with self.subTest(level=level):
                 self.assertIn(f"| `{level}` |", text)
+
+    def test_auto_level_is_documented(self) -> None:
+        text = (SPEAK_DIR / "SKILL.md").read_text(encoding="utf-8")
+        for phrase in ("### `auto`", "vivid but believable", "推断的情境：", "分析：", "朗读版本：",
+                       "`--tag custom` with none of them means `--tag auto`", "### Prepare the text for speech"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+        help_text = (SPEAK_DIR / "HELP.md").read_text(encoding="utf-8")
+        for phrase in ("`auto`", "推断的情境：", "--voice NAME", "--model NAME", "--stop"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, help_text)
 
     def test_language_rules_are_documented(self) -> None:
         text = (SPEAK_DIR / "SKILL.md").read_text(encoding="utf-8")

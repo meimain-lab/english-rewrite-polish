@@ -7,7 +7,6 @@
     "similarity_boost": 0.75
   },
   "slow_rate": 0.88,
-  "default_tag": "none",
   "save_audio": true,
   "save_dir": "~/Music/english-speak",
   "cache_dir": "~/.cache/english-speak"

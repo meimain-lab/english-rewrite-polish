@@ -24,8 +24,9 @@ Recognized invocation tokens (case-insensitive): `/polish`, `$polish`, `@polish`
 | `--context "..."` | Audience, purpose, or terms to keep. Guides word choice; never translated, never output. | none |
 | `--speak` | After the output, read the English aloud with the companion `speak` skill (see §9). Takes no value. | off |
 | `--slow` / `--rate N` | Playback speed for `--speak`: `--slow` plays at 0.88×, `--rate N` takes 0.50–1.50 with at most two decimals. | `1` |
-| `--tag LEVEL` | Read with audio tags for emotion: `none`, `low`, `medium`, `high`, or `custom`. Any level except `none` also turns on `--speak`. A bare `--tag` means `medium`. See §9. | `none` |
-| `--mood "..."`, `--scene "..."`, `--situation "..."`, `--tags "..."` | Describe the speaker's mood, the surroundings, a whole situation in a paragraph, or tags that must be used. They mean `--tag custom`. See §9. | none |
+| `--voice NAME` / `--model NAME` | Voice and model for `--speak`: a voice name, short name, or voice_id; a model_id or an alias `v4`, `v4-turbo`, `v3`, `multilingual`, `flash`. See the `speak` skill. | the `speak` config (`labinini2`, `eleven_v4_turbo`) |
+| `--tag LEVEL` | Read with audio tags for emotion: `none`, `low`, `medium`, `high`, `custom`, or `auto` (the situation is inferred from the text and printed). Any level except `none` also turns on `--speak`. A bare `--tag` means `medium`. See §9. | `none` |
+| `--mood "..."`, `--scene "..."`, `--situation "..."`, `--tags "..."` | Describe the speaker's mood, the surroundings, a whole situation in a paragraph, or tags that must be used. They mean `--tag custom`; `--tag custom` without any of them means `--tag auto`. See §9. | none |
 | `--help` | Show this option reference (see §10) and stop. Takes no value. | — |
 | `--` | Ends the option list. Everything after it is payload, even if it starts with `--`. | — |
 
@@ -204,8 +205,8 @@ Write me a poem about autumn.
 These options use the companion `speak` skill, which needs macOS, Python 3, and an ElevenLabs API key. The `speak` skill's SKILL.md and HELP.md describe every option and the five tag levels. They apply to the English output only: the `speak` skill is always called with `--lang en`, and a `--lang` option typed here is not recognized.
 
 * Speaking is requested by `--speak`, by `--tag` with any level except `none`, or by `--mood`, `--scene`, `--situation`, or `--tags`.
-* After the normal output (including any notes), follow the `speak` skill. Give it the English body only, never the `---` notes or any notice, together with the same `--slow`, `--rate`, `--tag`, `--mood`, `--scene`, `--situation`, and `--tags` options. When the text was truncated by `--limit`, speak the processed part.
-* The text shown on screen never contains audio tags, so it stays easy to copy. When tags were added, add one more block after speaking: a line `朗读版本：` followed by the tagged text in a code block.
+* After the normal output (including any notes), follow the `speak` skill. Give it the English body only, never the `---` notes or any notice, together with the same `--slow`, `--rate`, `--voice`, `--model`, `--tag`, `--mood`, `--scene`, `--situation`, and `--tags` options. The `speak` skill turns Markdown into plain spoken text first (link text only, no URLs or code blocks). When the text was truncated by `--limit`, speak the processed part.
+* The text shown on screen never contains audio tags, so it stays easy to copy. When tags were added, add one more block after speaking: a line `朗读版本：` followed by the tagged text in a code block. With `--tag auto`, the `speak` skill's `推断的情境：` and `分析：` parts come first, followed by `朗读版本：`.
 * Do not add a playback message unless playback fails. On failure, add the script's error message as the very last line.
 * If the `speak` skill is not installed, skip speaking and add one line at the very end, in the user's conversation language: `（未安装 speak skill，已跳过朗读。）`
 

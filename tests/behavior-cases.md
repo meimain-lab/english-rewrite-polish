@@ -309,3 +309,45 @@ Expected: the polished English as usual, then one line: `（未安装 speak skil
 Input: `/speak --help`
 
 Expected: the contents of `HELP.md` exactly, nothing spoken, no API call. `/rewrite --help` shows the options table and two examples and processes no text.
+
+### S13 — `--tag auto` prints the inferred situation
+
+Input: `/speak --tag auto I can't believe we actually pulled it off.`
+
+Expected: before the playback line, `推断的情境：` with two or three sentences of first-person American English (for example, telling the team a launch finally worked), `分析：` with two to four Chinese bullets, and `朗读版本：` with the tagged text. The words are unchanged and every tag is in `audio-tags.md`. `index.tsv` records `auto` and the situation.
+
+### S14 — Ordinary line under `auto`
+
+Input: `/speak --tag auto Can you pass me the salt?`
+
+Expected: an ordinary, believable situation (dinner with family or friends), light tags at most, no invented melodrama.
+
+### S15 — `--tag custom` without hints
+
+Input: `/speak --tag custom We need to talk.`
+
+Expected: handled as `auto`; the situation and analysis are printed.
+
+### S16 — Voice and model per call
+
+Input: `/speak --voice alice --model v4 Could you check whether you received it?`
+
+Expected: spoken with "Alice - Clear, Engaging Educator" and `eleven_v4`; the playback line names both. `/speak --voice chris Hello.` with two matching voices fails and lists them.
+
+### S17 — Tags with a model that does not support them
+
+Input: `/speak --model multilingual --tag low I'm not sure about this.`
+
+Expected: nothing is generated; the reply says the model would read tags out loud and suggests `v4`, `v4-turbo`, or `v3`. Without `--tag`, the same model reads the line normally.
+
+### S18 — Markdown from `rewrite`
+
+Input: ``/rewrite --speak 详细步骤见 [文档](https://example.com/docs)，运行 `npm install` 即可。``
+
+Expected: the English rewrite is shown with its link. The spoken text keeps the link text, drops the URL, and the speak step does not fail on `[...]`.
+
+### S19 — `--stop`
+
+Input: `/speak` a long paragraph, then `/speak --stop`.
+
+Expected: playback stops; audio from other programs, such as `/play-demo`, is not affected.

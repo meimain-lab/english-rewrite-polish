@@ -17,7 +17,7 @@ Four companion skills for moving text between Chinese, English, and other langua
 /rewrite   [--explain] [--limit N] [--context "..."] [--] <text>
 /polish    [--effort low|medium|high] [--limit N] [--context "..."] [--] <text>
 /translate [--to LANG] [--from LANG] [--gloss auto|off|full] [--bilingual] [--limit N] [--context "..."] [--] <text>
-/speak     [--slow | --rate N] [--replay] [--tag LEVEL] [--mood "..."] [--scene "..."] [--situation "..."] [--lang CODE] [--] [text]
+/speak     [--slow | --rate N] [--voice NAME] [--model NAME] [--tag LEVEL] [--mood "..."] [--scene "..."] [--situation "..."] [--lang CODE] [--replay] [--stop] [--] [text]
 ```
 
 Every skill answers `--help` with its option reference.
@@ -47,7 +47,8 @@ Use `$rewrite` / `$polish` / `$translate` in Codex and `@rewrite` / `@polish` / 
 | `--bilingual` | `translate` | off | Source and translation, paragraph by paragraph. |
 | `--speak` | `rewrite`, `polish` | off | Read the English result aloud with `speak`. |
 | `--slow` / `--rate N` | `rewrite`, `polish`, `speak` | `1` | Playback speed: `--slow` is 0.88×, `--rate` takes 0.50–1.50 with at most two decimals. |
-| `--tag none\|low\|medium\|high\|custom` | `rewrite`, `polish`, `speak` | `none` | Read with audio tags for emotion. |
+| `--voice NAME` / `--model NAME` | `rewrite`, `polish`, `speak` | config | Voice (name, short name, or voice_id) and model (model_id or `v4`, `v4-turbo`, `v3`, `multilingual`, `flash`) for this call. |
+| `--tag none\|low\|medium\|high\|custom\|auto` | `rewrite`, `polish`, `speak` | `none` | Read with audio tags for emotion. `auto` infers a situation from the text and prints it with a short analysis. |
 | `--mood`, `--scene`, `--situation`, `--tags` | `rewrite`, `polish`, `speak` | none | Describe the situation for `--tag custom`. |
 | `--help` | all | — | Show the option reference. |
 | `--limit N` / `--limit none` | all | `1000` | Maximum length units to process. |
@@ -93,12 +94,12 @@ No tier adds facts, claims, or sign-offs that aren't in the source.
   security add-generic-password -a "$USER" -s elevenlabs-api-key -w
   ```
 
-- **First run** creates `~/.config/english-speak/config.json` from `skills/speak/config.example.json`. Set `voice_name` (any voice in your account; `python3 skills/speak/scripts/speak.py --list-voices` lists them) and `model_id`.
+- **First run** creates `~/.config/english-speak/config.json` from `skills/speak/config.example.json`. Set `voice_name` (any voice in your account; `python3 skills/speak/scripts/speak.py --list-voices` lists them) and `model_id`. Changing `voice_name` switches the voice on the next call. `--voice` and `--model` override both for one call.
 - **Speed** changes local playback only, so a sentence is synthesized and cached once. The v4 models ignore the API's `speed` setting.
-- **Tags:** ElevenLabs' web Auto-tag button has no API. `--tag` makes the model insert tags from the whitelist in `skills/speak/audio-tags.md` (40 tags; any other bracketed tag is refused) without changing a word of the text. Levels: `none` (default), `low`, `medium`, `high`, and `custom`, which takes `--mood`, `--scene`, a paragraph-long `--situation`, or `--tags`.
+- **Tags:** ElevenLabs' web Auto-tag button has no API. `--tag` makes the model insert tags from the whitelist in `skills/speak/audio-tags.md` (40 tags; any other bracketed tag is refused) without changing a word of the text. Levels: `none` (default), `low`, `medium`, `high`, `custom`, which takes `--mood`, `--scene`, a paragraph-long `--situation`, or `--tags`, and `auto`, which infers a vivid but believable situation from the line and prints it, with a short analysis, before speaking. The script refuses tags outside a level's categories, and refuses tags with models that would read them out loud (only v3, v4, and v4 Turbo support tags). Markdown is turned into plain spoken text first.
 - **Languages:** called on its own, `speak` reads any language the model supports, as written. Called from `rewrite` or `polish`, it always reads English.
-- **Saved audio:** each new clip is copied to `~/Music/english-speak/` with an `index.tsv` of the spoken text. Set `"save_audio": false` to turn that off.
-- **Stop playback:** `pkill -x afplay`.
+- **Saved audio:** each new clip is copied to `~/Music/english-speak/` with an `index.tsv` of the spoken text, level, voice, model, and situation. Set `"save_audio": false` to turn that off.
+- **Stop playback:** `/speak --stop`, which stops only the clip `speak` started.
 
 See `skills/speak/HELP.md` for the full option reference.
 
@@ -137,8 +138,7 @@ skills/
     ├── config.example.json
     ├── agents/openai.yaml
     └── scripts/
-        ├── speak.py
-        └── play-audio.sh
+        └── speak.py
 tests/
 ├── reference_parser.py      # Executable statement of the invocation contract
 ├── test_skills.py           # Structure, shared-contract, parser, and direction tests
@@ -160,7 +160,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). License: MIT.
 
 - **`rewrite`**：把中文、中英混杂的文字或写得很差的英文快速转成自然的美式英文，保留原文的内容、顺序和结构。加上 `--explain` 后，会在译文下方用中文逐条讲解原文的语法和用词问题：原文片段和改法保留英文，语法术语首次出现时附英文，例如 时态（tense）、逗号粘连（comma splice）。原文是中文时，讲解的是哪些说法直译会变成中式英语。
 - **`polish`**：深度润色成美式英文，分三档。`low` 只改措辞；`medium`（默认）会重组句子、删去冗余；`high` 是完整的编辑处理，可以调整段落顺序，并附上主要改动说明。
-- **`speak`**（可选）：用 ElevenLabs 把文字读出来，练听力和跟读。需要 macOS 和 ElevenLabs API key（存在系统钥匙串里）。可以放慢播放（`--slow`、`--rate 0.88`，速度只影响本地播放，同一句只生成一次），也可以用 `--tag low|medium|high|custom` 自动加情绪标签。`custom` 档用 `--mood`、`--scene`，或用一段话的 `--situation` 描述说话时的情境。标签只能从 `skills/speak/audio-tags.md` 里的 40 个里选，不会编造新标签，也不会改动原文的任何词。单独使用时不限语言，从 `rewrite` / `polish` 调用时固定只读英文。每条新生成的音频会自动保存，并记入 `index.tsv`。各 skill 都支持 `--help`。
+- **`speak`**（可选）：用 ElevenLabs 把文字读出来，练听力和跟读。需要 macOS 和 ElevenLabs API key（存在系统钥匙串里）。可以放慢播放（`--slow`、`--rate 0.88`，速度只影响本地播放，同一句只生成一次），也可以用 `--tag low|medium|high|custom|auto` 自动加情绪标签。`custom` 档用 `--mood`、`--scene`，或用一段话的 `--situation` 描述说话时的情境；`auto` 档由模型先分析原句，推断一个生动但可信的情境，把英文情境描述和中文分析打印出来再朗读。`--voice`、`--model` 可以按次换声音和模型（默认 labinini2 和 `eleven_v4_turbo` 由配置决定），`--stop` 停止播放。标签只能从 `skills/speak/audio-tags.md` 里的 40 个里选，不会编造新标签，也不会改动原文的任何词。单独使用时不限语言，从 `rewrite` / `polish` 调用时固定只读英文。每条新生成的音频会自动保存，并记入 `index.tsv`。各 skill 都支持 `--help`。
 - **`translate`**：忠实翻译，默认译成简体中文。原文可以是英文、中英混杂，也可以是日语、韩语、法语、意大利语、俄语等。纯中文原文会自动译成英文；用 `--to` 可以指定任意目标语言。
 
 **`translate` 的中文输出规则**
