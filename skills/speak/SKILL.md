@@ -58,19 +58,21 @@ Speed only changes local playback. The text is synthesized once and cached no ma
 * **Called from `rewrite` or `polish`:** always English only. Pass `--lang en`, and leave out any non-English part of the text, saying so in one short line. The `--lang` option does not exist in those skills.
 * Do not rewrite, correct, or translate the text. Read it as it is, plus tags when `--tag` is not `none`.
 * Audio tags are always the English tags from `audio-tags.md`, whatever language the text is in.
-* The script refuses text longer than 1,000 characters. Show its message and suggest splitting the text.
+* **Always one run for the whole text.** Never split the text into several runs yourself: each run stops the clip before it, so only the last part would be heard. The script splits long text on sentence boundaries, generates the parts with their neighboring text for a smooth join, merges them into one file, and plays it once. It accepts up to 10,000 characters per run; for longer text, show its message and offer to read the rest in a second run after the first one finishes.
 
 ### Prepare the text for speech
 
-Text from `rewrite` or `polish`, or pasted by the user, often contains Markdown. Before tagging, turn it into plain spoken text. This is the only change allowed besides tags, and it never changes a word that would be spoken:
+Text from `rewrite` or `polish`, or pasted by the user, often contains Markdown, links, and handles. Before tagging, turn it into plain spoken text, the way a person would read it out. This is the only change allowed besides tags, and it never changes a word that would be spoken:
 
 * Links `[text](url)`: keep the link text, drop the URL.
-* Bare URLs, email addresses, file paths, and fenced code blocks: leave them out.
+* Bare URLs: read them the way a person says them. Drop `https://`, `http://`, `www.`, a trailing slash, and anything from `?` or `#` on. Then say `.` as "dot", `/` as "slash", `-` as "dash", and `_` as "underscore". `https://github.com/meimain-lab/english-rewrite-polish.git` becomes `github dot com slash meimain dash lab slash english dash rewrite dash polish dot git`. When a path part is a random ID or hash, stop before it and read only what comes before.
+* `@` is "at": email addresses become `name at example dot com`, and handles or mentions such as `@speak` or `@meimain-lab` become `at speak` and `at meimain dash lab`.
+* File paths and fenced code blocks: leave them out.
 * Headings, bold and italic markers, list bullets and numbers, table pipes, and emoji: drop the markup and keep the words. Keep each list item as its own sentence.
 * Inline code: keep it when it reads as words (`npm install`), leave it out when it doesn't.
 * Square brackets that are not audio tags (`[1]`, `[sic]`, `[TODO]`): drop the brackets and their content, since the script and the model would treat them as tags.
 
-When anything was left out, say so in one short line, for example `已跳过 2 个链接和 1 段代码。`
+When anything was left out, say so in one short line, for example `已跳过 1 个文件路径和 1 段代码。`
 
 ## 4. Audio tags (`--tag`)
 
@@ -136,7 +138,7 @@ The analysis is two to four short bullets in Simplified Chinese. Then run the sc
 
 ## 5. How to run
 
-Pass the final text (with tags, if any) through a quoted heredoc so quotes and special characters are never interpreted by the shell. Add the flags that apply: `--tag LEVEL` (so the saved record shows the level), `--slow` or `--rate N`, `--voice NAME`, `--model NAME`, `--lang CODE`, `--save`, and `--situation "..."` with the situation that was given or inferred (it is only written to the record, never sent to the API).
+Run the script once with the whole final text (with tags, if any), however long it is (§3). Pass it through a quoted heredoc so quotes and special characters are never interpreted by the shell. Add the flags that apply: `--tag LEVEL` (so the saved record shows the level), `--slow` or `--rate N`, `--voice NAME`, `--model NAME`, `--lang CODE`, `--save`, and `--situation "..."` with the situation that was given or inferred (it is only written to the record, never sent to the API).
 
 ```bash
 python3 <this folder>/scripts/speak.py --tag auto --slow --situation "I'm telling my team we finally shipped." <<'SPEAK_EOF'
@@ -150,7 +152,7 @@ The script saves every newly generated clip to the save folder (default `~/Music
 
 ## 6. Reply
 
-* On success, reply with one short line in Simplified Chinese, for example `正在朗读（42 字符，0.88×，labinini2）。` Do not repeat the text.
+* On success, reply with one short line in Simplified Chinese, for example `正在朗读（42 字符，0.88×，labinini2）。` When the script reports several parts, mention it, for example `正在朗读（2,340 字符，分 2 段生成后合成一个文件）。` Do not repeat the text.
 * With `low`, `medium`, `high`, or `custom`, also show the tagged text in a code block so the user can see where the emotion was placed.
 * With `auto`, print the situation, analysis, and tagged text as described in §4 first.
 * On failure, show the script's error message exactly as printed.

@@ -34,7 +34,20 @@ EXAMPLE_CONFIG = SKILL_DIR / "config.example.json"
 CONFIG_PATH = Path("~/.config/english-speak/config.json").expanduser()
 LEGACY_CONFIG_PATH = Path("~/.config/opencode/speak.json").expanduser()
 KEYCHAIN_SERVICE = "elevenlabs-api-key"
-MAX_CHARS = 1000
+# Total text per call; longer text is split into requests within the model's limit.
+MAX_CHARS = 10000
+# Longest single request. Long requests are slow to generate, so cap below the model limit.
+CHUNK_CHARS = 2500
+# Per-request character limits, used until /models has been fetched and cached.
+MODEL_CHAR_LIMITS = {
+    "eleven_v4": 10000,
+    "eleven_v4_turbo": 10000,
+    "eleven_v3": 5000,
+    "eleven_multilingual_v2": 10000,
+    "eleven_flash_v2_5": 40000,
+}
+DEFAULT_MODEL_CHAR_LIMIT = 5000
+REQUEST_TIMEOUT_SECONDS = 120
 MIN_RATE, MAX_RATE = 0.50, 1.50
 DEFAULT_SLOW_RATE = 0.88
 TAG_LEVELS = ("none", "low", "medium", "high", "custom", "auto")
@@ -61,6 +74,12 @@ LEVEL_CATEGORIES = {
     "high": ("Emotion", "Vocalizations", "Delivery"),
 }
 
+# A sentence: text up to and including its closing punctuation, plus closing quotes or brackets.
+SENTENCE_PATTERN = re.compile(r"[^.!?\u3002\uff01\uff1f]*[.!?\u3002\uff01\uff1f]+[\"'\u201d\u2019)]*\s*|[^.!?\u3002\uff01\uff1f]+$")
+# MPEG-1 Layer III bitrates (kbps) by header index, and sample rates by index.
+MP3_BITRATES = (0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320)
+MP3_SAMPLE_RATES = (44100, 48000, 32000)
+CJK_SENTENCE_ENDS = ("\u3002", "\uff01", "\uff1f")
 RATE_PATTERN = re.compile(r"^\d+(\.\d{1,2})?$")
 # A bracketed item that is not a Markdown link target.
 BRACKET_PATTERN = re.compile(r"\[([^\[\]]*)\](?!\()")
@@ -175,6 +194,85 @@ def normalize_text(raw):
     return " ".join(raw.split())
 
 
+def split_long_sentence(sentence, limit):
+    """Pieces of at most `limit` characters, cut at spaces outside [tags] where possible."""
+    pieces = []
+    while len(sentence) > limit:
+        depth, cut = 0, -1
+        for i, ch in enumerate(sentence[:limit + 1]):
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth = max(depth - 1, 0)
+            elif ch == " " and depth == 0 and i > 0:
+                cut = i
+        if cut <= 0:
+            cut = limit
+        pieces.append(sentence[:cut].strip())
+        sentence = sentence[cut:].strip()
+    if sentence:
+        pieces.append(sentence)
+    return pieces
+
+
+def split_text(text, limit):
+    """Chunks of at most `limit` characters, packed from whole sentences."""
+    if len(text) <= limit:
+        return [text]
+    sentences = []
+    for match in SENTENCE_PATTERN.finditer(text):
+        sentence = match.group(0).strip()
+        if sentence:
+            sentences.extend(split_long_sentence(sentence, limit))
+    chunks, current = [], ""
+    for sentence in sentences:
+        # CJK sentences follow each other without a space.
+        separator = "" if current.endswith(CJK_SENTENCE_ENDS) else " "
+        joined = f"{current}{separator}{sentence}" if current else sentence
+        if len(joined) <= limit:
+            current = joined
+        else:
+            chunks.append(current)
+            current = sentence
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def strip_id3(data):
+    """MP3 bytes without a leading ID3v2 tag, so parts can be joined into one stream."""
+    if data[:3] != b"ID3" or len(data) < 10:
+        return data
+    size = (data[6] & 0x7F) << 21 | (data[7] & 0x7F) << 14 | (data[8] & 0x7F) << 7 | (data[9] & 0x7F)
+    return data[10 + size:]
+
+
+def strip_info_frame(data):
+    """MP3 frames without a leading Xing/Info frame, whose frame count only describes one part."""
+    if len(data) < 4 or data[0] != 0xFF or data[1] & 0xFE != 0xFA:
+        return data  # Not MPEG-1 Layer III; leave it alone.
+    bitrate_index, rate_index, padding = data[2] >> 4, (data[2] >> 2) & 3, (data[2] >> 1) & 1
+    if not 0 < bitrate_index < 15 or rate_index == 3:
+        return data
+    length = 144 * MP3_BITRATES[bitrate_index] * 1000 // MP3_SAMPLE_RATES[rate_index] + padding
+    if b"Xing" in data[4:40] or b"Info" in data[4:40]:
+        return data[length:]
+    return data
+
+
+def join_mp3(parts):
+    """One MP3 stream from parts with the same format.
+
+    Only the first ID3 tag is kept. Every Xing/Info frame is dropped: each one counts the frames
+    of its own part, so players would report, or stop at, the length of the first part.
+    """
+    if len(parts) == 1:
+        return parts[0]
+    first = parts[0]
+    header = first[:len(first) - len(strip_id3(first))]
+    return header + b"".join(strip_info_frame(strip_id3(part)) for part in parts)
+
+
 def looks_like_mp3(data):
     """True for an ID3 header or an MPEG audio frame sync at the start."""
     if len(data) < 128:
@@ -277,6 +375,7 @@ def ssl_context():
 
 
 def request(method, path, body=None):
+    """Response body of an API call, retrying once on rate limits and server errors."""
     data = json.dumps(body).encode() if body is not None else None
     for attempt in (1, 2):
         req = urllib.request.Request(f"{API}{path}", data=data, method=method)
@@ -284,7 +383,7 @@ def request(method, path, body=None):
         if data is not None:
             req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=60, context=ssl_context()) as resp:
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS, context=ssl_context()) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
             if attempt == 1 and e.code in RETRY_STATUS:
@@ -337,9 +436,40 @@ def fetch_voices():
 
 def fetch_models():
     return [
-        {"model_id": m["model_id"], "name": m.get("name", "")}
+        {"model_id": m["model_id"], "name": m.get("name", ""),
+         "max_chars": m.get("maximum_text_length_per_request")}
         for m in json.loads(request("GET", "/models")) if m.get("can_do_text_to_speech")
     ]
+
+
+def model_char_limit(model_id, cache_dir):
+    """Characters one request may carry: from the cached model list, else the built-in table."""
+    path = cache_dir / "models.json"
+    if path.exists():
+        for m in read_json(path).get("items", []):
+            if m.get("model_id") == model_id and m.get("max_chars"):
+                return int(m["max_chars"])
+    return MODEL_CHAR_LIMITS.get(model_id, DEFAULT_MODEL_CHAR_LIMIT)
+
+
+def synthesize(chunks, voice_id, model_id, settings, language):
+    """One MP3 for all chunks. Neighboring text is sent along so the parts sound continuous."""
+    parts = []
+    for i, chunk in enumerate(chunks):
+        body = {"text": chunk, "model_id": model_id, "voice_settings": settings}
+        if language:
+            body["language_code"] = language
+        if len(chunks) > 1:
+            print(f"正在生成第 {i + 1}/{len(chunks)} 段……", file=sys.stderr)
+            if i > 0:
+                body["previous_text"] = chunks[i - 1]
+            if i < len(chunks) - 1:
+                body["next_text"] = chunks[i + 1]
+        audio = request("POST", f"/text-to-speech/{voice_id}?output_format=mp3_44100_128", body)
+        if not looks_like_mp3(audio):
+            fail(f"ElevenLabs 返回的不是音频（{len(audio)} 字节），没有缓存。请稍后重试。")
+        parts.append(audio)
+    return join_mp3(parts)
 
 
 def find_voice(query, cache_dir):
@@ -494,7 +624,7 @@ def main():
     if not text:
         fail("没有要朗读的文本（请通过 stdin 传入）。")
     if len(text) > MAX_CHARS:
-        fail(f"文本有 {len(text)} 个字符，超过上限 {MAX_CHARS}。请分段朗读。")
+        fail(f"文本有 {len(text)} 个字符，超过单次上限 {MAX_CHARS}。请先读前一部分，再读剩下的。")
 
     categories = load_tag_categories()
     unsupported = find_unsupported_tags(text, set().union(*categories.values()))
@@ -524,13 +654,11 @@ def main():
 
     path = cache_dir / f"{cache_digest(text, voice_id, model_id, settings, language)}.mp3"
     source = "缓存"
+    chunk_count = 1
     if not path.exists():
-        body = {"text": text, "model_id": model_id, "voice_settings": settings}
-        if language:
-            body["language_code"] = language
-        audio = request("POST", f"/text-to-speech/{voice_id}?output_format=mp3_44100_128", body)
-        if not looks_like_mp3(audio):
-            fail(f"ElevenLabs 返回的不是音频（{len(audio)} 字节），没有缓存。请稍后重试。")
+        chunks = split_text(text, min(CHUNK_CHARS, model_char_limit(model_id, cache_dir)))
+        chunk_count = len(chunks)
+        audio = synthesize(chunks, voice_id, model_id, settings, language)
         tmp = path.with_suffix(".mp3.part")
         tmp.write_bytes(audio)
         os.replace(tmp, path)
@@ -544,7 +672,8 @@ def main():
 
     last_file.write_text(str(path))
     play(path, rate, pid_file)
-    print(f"正在播放（{len(text)} 字符，{source}，{rate:g}×，{voice_name} / {model_id}）：{path}")
+    parts = f"，分 {chunk_count} 段生成后合成一个文件" if chunk_count > 1 else ""
+    print(f"正在播放（{len(text)} 字符{parts}，{source}，{rate:g}×，{voice_name} / {model_id}）：{path}")
 
 
 if __name__ == "__main__":

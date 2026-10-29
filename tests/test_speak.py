@@ -207,6 +207,87 @@ class AudioAndFilesTests(unittest.TestCase):
             self.assertFalse(speak.stop_playback(pid_file))
 
 
+class LongTextTests(unittest.TestCase):
+    def test_short_text_is_one_chunk(self) -> None:
+        self.assertEqual(speak.split_text("Hello there.", 2500), ["Hello there."])
+
+    def test_chunks_keep_every_word_and_respect_the_limit(self) -> None:
+        text = " ".join(f"[sighing] This is sentence number {i}, and it goes on a bit." for i in range(200))
+        chunks = speak.split_text(text, 2500)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(c) <= 2500 for c in chunks))
+        self.assertEqual(" ".join(chunks), text)
+        # Chunks end on sentence boundaries and start with the tag that belongs to the next sentence.
+        self.assertTrue(all(c.endswith(".") for c in chunks))
+        self.assertTrue(all(c.startswith("[sighing]") for c in chunks))
+
+    def test_cjk_sentences_join_without_spaces(self) -> None:
+        self.assertEqual(speak.split_text("你好。我很好！ Is it?", 8), ["你好。我很好！", "Is it?"])
+
+    def test_long_sentence_is_cut_outside_tags(self) -> None:
+        pieces = speak.split_long_sentence("one two [clears throat] three four five", 25)
+        self.assertEqual(pieces, ["one two [clears throat]", "three four five"])
+
+    def test_model_char_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            self.assertEqual(speak.model_char_limit("eleven_v3", cache_dir), 5000)
+            self.assertEqual(speak.model_char_limit("eleven_v4_turbo", cache_dir), 10000)
+            self.assertEqual(speak.model_char_limit("unknown_model", cache_dir), speak.DEFAULT_MODEL_CHAR_LIMIT)
+            speak.write_json(cache_dir / "models.json",
+                             {"fetched": 0, "items": [{"model_id": "eleven_v3", "max_chars": 3000}]})
+            self.assertEqual(speak.model_char_limit("eleven_v3", cache_dir), 3000)
+
+    def test_join_mp3_keeps_one_id3_and_drops_info_frames(self) -> None:
+        # 128 kbps, 44.1 kHz, no padding: 417-byte frames.
+        frame = bytes([0xFF, 0xFB, 0x90, 0xC0]) + b"\x00" * 413
+        info = bytes([0xFF, 0xFB, 0x90, 0xC0]) + b"\x00" * 17 + b"Info" + b"\x00" * 392
+        tag = b"ID3\x04\x00\x00\x00\x00\x00\x05" + b"TAGXX"
+        part = tag + info + frame * 2
+        self.assertEqual(speak.strip_id3(part), info + frame * 2)
+        self.assertEqual(speak.strip_id3(frame), frame)
+        self.assertEqual(speak.strip_info_frame(info + frame), frame)
+        self.assertEqual(speak.strip_info_frame(frame * 2), frame * 2)
+        self.assertEqual(speak.join_mp3([part, part, part]), tag + frame * 6)
+        self.assertEqual(speak.join_mp3([part]), part)
+
+    def test_synthesize_sends_neighbors_and_returns_one_file(self) -> None:
+        frames = bytes([0xFF, 0xFB]) + b"\x00" * 200
+        bodies = []
+
+        def fake_request(method, path, body=None):
+            bodies.append(body)
+            return frames
+
+        original = speak.request
+        speak.request = fake_request
+        try:
+            audio = speak.synthesize(["One.", "Two.", "Three."], "voice", "eleven_v4_turbo", {}, "en")
+        finally:
+            speak.request = original
+        self.assertEqual(audio, frames * 3)
+        self.assertEqual([b["text"] for b in bodies], ["One.", "Two.", "Three."])
+        self.assertNotIn("previous_text", bodies[0])
+        self.assertEqual(bodies[1]["previous_text"], "One.")
+        self.assertEqual(bodies[1]["next_text"], "Three.")
+        self.assertNotIn("next_text", bodies[2])
+        self.assertTrue(all(b["language_code"] == "en" for b in bodies))
+
+    def test_single_chunk_sends_no_neighbors(self) -> None:
+        bodies = []
+        original = speak.request
+        speak.request = lambda method, path, body=None: bodies.append(body) or bytes([0xFF, 0xFB]) + b"\x00" * 200
+        try:
+            speak.synthesize(["Only one."], "voice", "eleven_v4_turbo", {}, None)
+        finally:
+            speak.request = original
+        self.assertEqual(set(bodies[0]), {"text", "model_id", "voice_settings"})
+
+    def test_cap_is_far_above_the_old_limit(self) -> None:
+        self.assertEqual(speak.MAX_CHARS, 10000)
+        self.assertLessEqual(speak.CHUNK_CHARS, min(speak.MODEL_CHAR_LIMITS.values()))
+
+
 class CacheTests(unittest.TestCase):
     def test_digest_is_stable_and_sensitive(self) -> None:
         base = speak.cache_digest("Hello.", "voice", "model", {"stability": 0.5})
@@ -310,6 +391,18 @@ class SkillFilesTests(unittest.TestCase):
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
+
+    def test_long_text_and_links_rules_are_documented(self) -> None:
+        skill = (SPEAK_DIR / "SKILL.md").read_text(encoding="utf-8")
+        help_text = (SPEAK_DIR / "HELP.md").read_text(encoding="utf-8")
+        self.assertIn("Never split the text into several runs", skill)
+        self.assertIn("github dot com slash meimain dash lab", skill)
+        self.assertIn('`@` is "at"', skill)
+        self.assertIn("10,000", help_text)
+        self.assertIn("读作 “at”", help_text)
+        for name in ("rewrite", "polish"):
+            text = (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("one `speak` run, never several", text)
 
     def test_rewrite_and_polish_force_english(self) -> None:
         for name in ("rewrite", "polish"):

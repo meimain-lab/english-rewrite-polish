@@ -351,3 +351,15 @@ Expected: the English rewrite is shown with its link. The spoken text keeps the 
 Input: `/speak` a long paragraph, then `/speak --stop`.
 
 Expected: playback stops; audio from other programs, such as `/play-demo`, is not affected.
+
+### S20 — Long text plays as one clip
+
+Input: `/speak` with about 2,000 characters of English in four paragraphs.
+
+Expected: the model runs `speak.py` once with the whole text. When the text is longer than one request allows, the script reports how many parts it generated; one file is saved and played to the end. Nothing is cut off by a later run.
+
+### S21 — Links and `@` read aloud
+
+Input: `/speak The repo is at https://github.com/meimain-lab/english-rewrite-polish.git, ping @meimain-lab or email dev@example.com.`
+
+Expected: spoken as `github dot com slash meimain dash lab slash english dash rewrite dash polish dot git`, `at meimain dash lab`, and `dev at example dot com`; `https://` is not read. A fenced code block in the text is still skipped, with a one-line notice.

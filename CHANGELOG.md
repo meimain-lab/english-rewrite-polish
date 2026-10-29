@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-10-19
+## [0.5.0] - 2026-10-29
 
 ### Added
 
@@ -14,7 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `--tag auto`: the model analyzes the line, infers a vivid but believable situation, and prints the situation (in American English), a short analysis, and the tagged text before speaking. `--tag custom` without `--mood`, `--scene`, `--situation`, or `--tags` now means `auto`.
 - `--stop` stops the clip `speak` is playing.
 - `index.tsv` gains voice, model, and situation columns.
-- Markdown is turned into plain spoken text before speaking: link text only, no URLs or code blocks.
+- Markdown is turned into plain spoken text before speaking: link text only, no file paths or code blocks. Bare URLs are read the way a person says them (`github dot com slash meimain dash lab`, without `https://`), and `@` is read as "at".
+- Long text: `speak.py` accepts up to 10,000 characters per run. Text longer than one request allows is split on sentence boundaries, each part is generated with its neighboring text for a smooth join, and the parts are merged into one MP3 that is saved and played once.
 
 ### Changed
 
@@ -28,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Changing `voice_name` in the config kept using the old voice.
+- Long text sounded cut off: the 1,000-character cap made the model split text into several runs, and each run stopped the clip before it, so only the last part was heard in full. The skills now always use one run per text.
 - Markdown links such as `[docs](https://…)` were rejected as unsupported tags.
 - A non-audio API response could be cached and replayed as a broken clip.
 - Stopping playback killed every `afplay` process, not only the one `speak` started.
